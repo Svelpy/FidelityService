@@ -22,11 +22,7 @@ class User(BaseModel):
     address: Mapped[str | None] = mapped_column("Direccion", Text, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column("Avatar_url", String, nullable=True)
     gender: Mapped[str | None] = mapped_column("Genero", String, nullable=True)
-    role: Mapped[Role] = mapped_column(
-        "Role",
-        SQLAlchemyEnum(Role, native_enum=False, create_constraint=False, length=20),
-        nullable=False,
-    )
+    role: Mapped[Role] = mapped_column("Role", SQLAlchemyEnum(Role, native_enum=False, create_constraint=False, length=20), nullable=False,)
     password_hash: Mapped[str] = mapped_column("password_hash", String, nullable=False)
     points: Mapped[int] = mapped_column("Puntos", BigInteger, nullable=False)
 

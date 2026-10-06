@@ -1,21 +1,23 @@
-import logging
+import time
 import traceback
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import Settings
 from app.shared.errors.exceptions import AppException
-from app.domains.error_logs import ErrorLog
+from app.core.logging import get_logger
+from app.domains.error_logs.models import ErrorLog
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
-    """Registra los interceptores globales de errores en la app."""
+    """Registra los handlers globales de errores."""
 
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request,exc: AppException,) -> JSONResponse:
@@ -53,6 +55,29 @@ def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
             },
         )
 
+    @app.exception_handler(RateLimitExceeded)
+    async def rate_limit_exceeded_handler(request: Request, _exc: RateLimitExceeded) -> JSONResponse:
+        rate_limit, identifiers = request.state.view_rate_limit
+        limiter = request.app.state.limiter
+        reset_at, remaining = limiter.limiter.get_window_stats(rate_limit,*identifiers)
+        retry_after = max(int(reset_at - time.time()), 1)
+
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={
+                "status": "fail",
+                "code": "HTTP_429",
+                "message": "Demasiadas solicitudes. Intenta nuevamente más tarde.",
+                "details": {},
+            },
+            headers={
+                "Retry-After": str(retry_after),
+                "X-RateLimit-Limit": str(rate_limit.amount),
+                "X-RateLimit-Remaining": str(remaining),
+                "X-RateLimit-Reset": str(int(reset_at)),
+            },
+        )
+
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request,exc: StarletteHTTPException) -> JSONResponse:
         return JSONResponse(
@@ -69,9 +94,9 @@ def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request,exc: Exception) -> JSONResponse:
         stack_trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-
+        logger.error("Error crítico detectado: %s\n%s", exc, stack_trace)
+        
         if settings.DEBUG:
-            logger.error("Error crítico detectado: %s\n%s", exc, stack_trace)
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
@@ -83,25 +108,29 @@ def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
             )
 
         try:
-            ip_address = request.client.host if request.client else None
-            user_agent = request.headers.get("user-agent")
+            session_factory = getattr(request.app.state,"db_session_factory",None)
+            if session_factory is None:
+                raise RuntimeError("La fábrica de sesiones no está inicializada")
             user_id = None
             if hasattr(request.state, "user"):
-                user_id = str(request.state.user.id)
+                user_id = request.state.user.id
 
-            log = ErrorLog(
+            error_log = ErrorLog(
                 status="error",
                 message=str(exc),
                 stack=stack_trace,
                 path=request.url.path,
                 method=request.method,
-                ip_address=ip_address,
-                user_agent=user_agent,
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
                 user_id=user_id,
             )
-            await log.insert()
-        except Exception as db_error:
-            logger.error("Error al intentar guardar log en MongoDB: %s", db_error)
+
+            async with session_factory() as session:
+                session.add(error_log)
+                await session.commit()    
+        except Exception:
+            logger.exception("No se pudo persistir el error interno en PostgreSQL")
 
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

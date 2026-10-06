@@ -23,12 +23,11 @@ email-validator>=2.1.0
 python-dateutil>=2.8.0
 
 # ===== Rate Limiting =====
+slowapi>=0.1.10,<0.2.0
 
 # ===== Procesamiento de Imágenes =====
 Pillow>=11.0.0
 
-
-redis>=5.0.0
 
 pytest
 pytest-cov

@@ -15,11 +15,7 @@ from app.domains.auth.services import AuthService
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 from app.shared.schemas.errors import ErrorResponse
-from app.middlewares.limiter import (
-    RateLimitService,
-    get_rate_limit_service,
-    rate_limit_ip_endpoint,
-)
+from app.middlewares.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -138,16 +134,14 @@ COOKIE_OPENAPI = {
         "csrf_token; además establece la cookie HttpOnly refresh_token."
     ),
     responses={**TOKEN_SUCCESS_RESPONSES, **LOGIN_ERROR_RESPONSES},
-    dependencies=[Depends(rate_limit_ip_endpoint(
-        "auth:login", "RATE_LIMIT_LOGIN_PER_MINUTE", 60
-    ))],
 )
+@limiter.limit("10/minute")
 async def login(
+    request: Request,
     response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db_session: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    rate_limit_service: Annotated[RateLimitService, Depends(get_rate_limit_service)],
 ) -> TokenResponse:
     """
     Iniciar sesión con correo y contraseña.
@@ -164,13 +158,6 @@ async def login(
             {"username": error.errors()[0]["msg"]},
         ) from error
 
-    email = str(credentials.email)
-    await rate_limit_service.check(
-        scope="email:login",
-        identity=email,
-        limit=settings.RATE_LIMIT_LOGIN_PER_MINUTE,
-        window_seconds=60,
-    )
     tokens = await AuthService.login(db_session, credentials, settings)
     response.set_cookie(
         key=settings.REFRESH_TOKEN_COOKIE_NAME,
@@ -200,10 +187,8 @@ async def login(
     ),
     responses={**TOKEN_SUCCESS_RESPONSES, **REFRESH_ERROR_RESPONSES},
     openapi_extra=COOKIE_OPENAPI,
-    dependencies=[Depends(rate_limit_ip_endpoint(
-        "auth:refresh", "RATE_LIMIT_REFRESH_PER_MINUTE", 60
-    ))],
 )
+@limiter.limit("10/minute")
 async def refresh(
     request: Request,
     response: Response,
@@ -249,10 +234,8 @@ async def refresh(
     ),
     responses={**LOGOUT_SUCCESS_RESPONSES, **LOGOUT_ERROR_RESPONSES},
     openapi_extra=COOKIE_OPENAPI,
-    dependencies=[Depends(rate_limit_ip_endpoint(
-        "auth:logout", "RATE_LIMIT_LOGOUT_PER_MINUTE", 60
-    ))],
 )
+@limiter.limit("10/minute")
 async def logout(
     request: Request,
     response: Response,

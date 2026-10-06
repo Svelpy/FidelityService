@@ -1,24 +1,23 @@
-from datetime import datetime
-from uuid import UUID
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlmodel import Field, SQLModel
 
 
-class BaseModel(DeclarativeBase):
-    """Base declarativa con los campos comunes de auditoría."""
-
-    __abstract__ = True
-
-    create_at: Mapped[datetime] = mapped_column(DateTime(timezone=False),nullable=False)
-    create_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True),nullable=True)
-    update_at: Mapped[datetime] = mapped_column(DateTime(timezone=False),nullable=False)
-    update_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True),nullable=True)
-    is_delete: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    delete_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True),nullable=True)
-    delete_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False),nullable=True)
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-Base = BaseModel
+class BaseModel(SQLModel):
+    """Modelo base abstracto con campos comunes de auditoría."""
+
+    id: UUID = Field(default_factory=uuid4,primary_key=True,)
+    created_at: datetime = Field(default_factory=utc_now,nullable=False,)
+    created_by: UUID | None = Field(default=None,nullable=True,)
+
+    updated_at: datetime = Field(default_factory=utc_now,nullable=False,)
+    updated_by: UUID | None = Field(default=None,nullable=True,)
+
+    is_deleted: bool = Field(default=False,nullable=False,index=True,)
+    deleted_at: datetime | None = Field(default=None,nullable=True,)
+    deleted_by: UUID | None = Field(default=None,nullable=True,)

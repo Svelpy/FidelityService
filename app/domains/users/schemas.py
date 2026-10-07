@@ -1,284 +1,153 @@
-from datetime import datetime
-from typing import Literal
+from datetime import date, datetime
+from uuid import UUID
 
-from beanie import PydanticObjectId
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.shared.enums import AuthProvider, Role, UserStatus
+from app.shared.enums import Genero, Role
 from app.shared.services.validators import (
-    validator_names,
+    validator_birth_date,
+    validator_ci,
+    validator_email,
+    validator_name,
     validator_password,
     validator_phone,
-    validator_username,
-    validator_email,
-    validator_birth_date,
+    validator_required_field,
 )
 
 
-# ---------------------------------------------------------------------------
-# Schemas de escritura (entrada de datos)
-# ---------------------------------------------------------------------------
+class UserRegistrationData(BaseModel):
+    """Schema para auto-registro."""
 
-class UserCredentialsData(BaseModel):
-    """Credenciales y correo usados al crear un usuario administrativamente."""
+    ci: str = Field(..., min_length=6, max_length=20)
+    telefono: str = Field(..., min_length=6, max_length=20)
+    nombre: str = Field(..., min_length=2, max_length=60)
+    genero: Genero = Field(default=Genero.O)
 
-    email: EmailStr
-    password: str = Field(..., min_length=8, max_length=100)
-
-
-
-    @field_validator("password")
+    @field_validator("telefono", mode="before")
     @classmethod
-    def validate_password(cls, value: str) -> str:
-        return validator_password(value)
-    
-    @field_validator("email", mode="before")
-    @classmethod
-    def validate_email(cls, value: str) -> str:
-        return validator_email(value)
-
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "example": {
-                "email": "usuario@adamgroup.com.bo",
-                "password": "Passw0rd123",
-            }
-        }
-    )
-
-
-class UserCreate(UserCredentialsData):
-    """Schema para crear un usuario desde el panel administrativo."""
-
-    name: str | None = Field(None, min_length=2, max_length=50)
-    lastname: str | None = Field(None, min_length=2, max_length=100)
-    username: str | None = Field(None, min_length=4, max_length=20)
-    phone_number: str | None = Field(None, min_length=6, max_length=16)
-    birth_date: datetime | None = None
-
-    role: Role
-
-    @field_validator("name", "lastname", mode="before")
-    @classmethod
-    def validate_names(cls, value: str | None) -> str | None:
-        return validator_names(value)
-
-    @field_validator("username", mode="before")
-    @classmethod
-    def validate_username(cls, value: str | None) -> str | None:
-        return validator_username(value)
-
-    @field_validator("phone_number")
-    @classmethod
-    def validate_phone(cls, value: str | None) -> str | None:
+    def validate_phone(cls, value: str) -> str:
         return validator_phone(value)
 
-    @field_validator("birth_date")
+    @field_validator("ci", mode="before")
     @classmethod
-    def validate_birth_date(cls, value: datetime | None) -> datetime | None:
-        return validator_birth_date(value)
+    def validate_ci(cls, value: str) -> str:
+        return validator_ci(value)
 
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "example": {
-                "email": "admin.creado@adamgroup.com.bo",
-                "password": "Passw0rd123",
-                "name": "María",
-                "lastname": "García López",
-                "username": "maria_garcia",
-                "phone_number": "+59170012345",
-                "birth_date": "1990-01-01T00:00:00Z",
-                "role": "GERENTE",
-            }
-        },
-    )
+    @field_validator("nombre", mode="before")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return validator_name(value)
 
+    model_config = ConfigDict(extra="forbid")
+
+class UserCreate(UserRegistrationData):
+    """Schema para crear un usuario desde el panel administrativo."""
+
+    role: Role = Field(default=Role.CLIENTE)
+    sucursal_id: UUID | None = None
+
+    model_config = ConfigDict(extra="forbid")
 
 class UserSelfUpdate(BaseModel):
     """Schema para actualizar datos del propio usuario."""
+    nombre: str | None = Field(default=None, min_length=2, max_length=60)
+    apellidos: str | None = Field(default=None, min_length=2, max_length=120)
+    telefono: str | None = Field(default=None, min_length=6, max_length=20)
+    email: EmailStr | None = Field(default=None)
+    birth_date: date | None = Field(default=None)
+    direccion: str | None = Field(default=None, min_length=2, max_length=120)
+    genero: Genero | None = Field(default=None)
 
-    name: str | None = Field(None, min_length=2, max_length=50)
-    lastname: str | None = Field(None, min_length=2, max_length=100)
-    username: str | None = Field(None, min_length=4, max_length=20)
-    phone_number: str | None = Field(None, min_length=6, max_length=16)
-    birth_date: datetime | None = None
-
-    @field_validator("name", "lastname", mode="before")
+    @field_validator("nombre", "apellidos", mode="before")
     @classmethod
-    def validate_names(cls, value: str | None) -> str | None:
-        return validator_names(value)
+    def validate_name(cls, value: str | None) -> str:
+        return validator_name(validator_required_field(value))
 
-    @field_validator("username", mode="before")
+    @field_validator("telefono", mode="before")
     @classmethod
-    def validate_username(cls, value: str | None) -> str | None:
-        return validator_username(value)
+    def validate_phone(cls, value: str | None) -> str:
+        return validator_phone(validator_required_field(value))
 
-    @field_validator("phone_number", mode="before")
+    @field_validator("email", mode="before")
     @classmethod
-    def validate_phone(cls, value: str | None) -> str | None:
-        return validator_phone(value)
+    def validate_email(cls, value: object) -> object:
+        if value is None:
+            return None
+        return validator_email(value)
 
     @field_validator("birth_date")
     @classmethod
-    def validate_birth_date(cls,value: datetime | None) -> datetime | None:
-        return validator_birth_date(value)
+    def validate_birth_date(cls, value: date | None) -> date | None:
+        validated = validator_birth_date(value)
+        return validated if isinstance(validated, date) else None
 
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "example": {
-                "name": "María",
-                "lastname": "García López",
-                "username": "maria_garcia",
-                "phone_number": "+59170099887",
-                "birth_date": "1990-01-01T00:00:00Z",
-            }
-        }
-    )
-    
+    model_config = ConfigDict(extra="forbid")
 
-
-AdministrativeUserStatus = Literal[UserStatus.ACTIVE,UserStatus.INACTIVE,UserStatus.SUSPENDED,UserStatus.BANNED]
 class UserUpdate(UserSelfUpdate):
-    """Schema para actualizar un usuario desde una ruta administrativa."""
-    
-    role: Role | None = None
-    status: AdministrativeUserStatus | None = None
+    """Schema para actualizar datos de un usuario desde el panel administrativo."""
+    ci: str | None = Field(default=None, min_length=6, max_length=20)
+    role: Role | None = Field(default=None)
+    sucursal_id: UUID | None = Field(default=None)
 
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "example": {
-                "name": "María",
-                "lastname": "García López",
-                "username": "maria_garcia",
-                "phone_number": "+59170099887",
-                "birth_date": "1990-01-01T00:00:00Z",
-                "status": "ACTIVE",
-                "role": "GERENTE",
-            }
-        }
-    )
+    @field_validator("ci", mode="before")
+    @classmethod
+    def validate_ci(cls, value: str | None) -> str:
+        return validator_ci(validator_required_field(value))
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def validate_role(cls, value: Role | None) -> Role:
+        return validator_required_field(value)
+
+    model_config = ConfigDict(extra="forbid")
 
 
+class UserResponse(BaseModel):
+    """Respuesta de usuario sin contraseña ni datos sensibles."""
+    id: UUID
+    nombre: str
+    apellidos: str | None
+    telefono: str
+    email: EmailStr | None
+    birth_date: date | None
+    ci: str
+    direccion: str | None
+    avatar_url: str | None
+    genero: Genero
+    role: Role
+    puntos: int
+    sucursal_id: UUID | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserResponseAudit(UserResponse):
+    """Respuesta de usuario completa con datos de auditoría."""
+    created_at: datetime
+    created_by: UUID | None
+    updated_at: datetime
+    updated_by: UUID | None
+    is_deleted: bool
+    deleted_at: datetime | None
+    deleted_by: UUID | None
+
+    model_config = ConfigDict(from_attributes=True)
 
 class AdminResetPassword(BaseModel):
     """Schema para restablecer contraseñas administrativamente."""
 
-    new_password: str = Field(..., min_length=8, max_length=100)
+    new_password: str = Field(...,min_length=8, max_length=100)
 
     @field_validator("new_password")
     @classmethod
     def validate_new_password(cls, value: str) -> str:
         return validator_password(value)
 
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "example": {
-                "new_password": "NuevaPass123",
-            }
-        }
-    )
+    model_config = ConfigDict(extra="forbid")
 
 
 class PasswordSelfUpdate(AdminResetPassword):
     """Schema para cambiar la contraseña del usuario autenticado."""
+    current_password: str = Field(min_length=1, max_length=100)
 
-    current_password: str = Field(..., min_length=1)
-
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "example": {
-                "current_password": "PassActual123",
-                "new_password": "NuevaPass123",
-            }
-        }
-    )
-
-
-
-# ---------------------------------------------------------------------------
-# Schemas de lectura (salida de datos)
-# ---------------------------------------------------------------------------
-
-class UserResponse(BaseModel):
-    """Respuesta de usuario sin contraseña ni datos sensibles."""
-
-    id: PydanticObjectId
-    email: EmailStr
-    name: str | None = None
-    lastname: str | None = None
-    username: str | None = None
-    role: Role
-    phone_number: str | None = None
-    birth_date: datetime | None = None
-    avatar_url: str | None = None
-    
-    status: UserStatus
-    
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_schema_extra={
-            "example": {
-                "id": "507f1f77bcf86cd799439011",
-                "email": "usuario@adamgroup.com.bo",
-                "name": "María",
-                "lastname": "García López",
-                "username": "mariagarcia",
-                "role": "USER",
-                "status": "ACTIVE",
-                "avatar_url": None,
-                "phone_number": "+59170012345",
-                "birth_date": "1990-01-01T00:00:00Z",
-                "created_at": "2025-12-19T14:00:00Z",
-                "updated_at": "2025-12-19T14:00:00Z",
-            }
-        },
-    )
-
-
-class UserResponseAudit(UserResponse):
-    """Respuesta de usuario completa con datos de auditoría."""
-    created_by: PydanticObjectId | None = None
-    updated_by: PydanticObjectId | None = None
-    is_deleted: bool
-    deleted_at: datetime | None = None
-    deleted_by: PydanticObjectId | None = None
-    auth_provider: AuthProvider
-    business_id: PydanticObjectId | None = None
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_schema_extra={
-            "example": {
-                "id": "507f1f77bcf86cd799439011",
-                "business_id": "507f1f77bcf86cd799439000",
-                "email": "usuario@adamgroup.com.bo",
-                "name": "María",
-                "lastname": "García López",
-                "username": "mariagarcia",
-                "role": "USER",
-                "status": "ACTIVE",
-                "auth_provider": "LOCAL",
-                "avatar_url": None,
-                "phone_number": "+59170012345",
-                "birth_date": "1990-01-01T00:00:00Z",
-                "created_at": "2025-12-19T14:00:00Z",
-                "updated_at": "2025-12-19T14:00:00Z",
-                "created_by": "507f1f77bcf86cd799439000",
-                "updated_by": "507f1f77bcf86cd799439000",
-                "is_deleted": False,
-                "deleted_at": None,
-                "deleted_by": None,
-            }
-        },
-    )
-class UserCreationResponse(BaseModel):
-    user: UserResponse | UserResponseAudit
-    email: EmailStr
+    model_config = ConfigDict(extra="forbid")

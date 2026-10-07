@@ -1,29 +1,28 @@
+from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION, UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Index, Numeric, Text, UniqueConstraint
+from sqlmodel import Field
 
 from app.core.base_model import BaseModel
 
 
-class Vale(BaseModel):
-    __tablename__ = "VALE"
-    __table_args__ = {"schema": "public"}
+class Vale(BaseModel, table=True):
+    __tablename__ = "vale"
+    __table_args__ = (
+        UniqueConstraint("id", "negocio_id", name="uq_vale_id_negocio_id"),
+        Index("ix_vale_categoria_id", "categoria_id"),
+        Index("ix_vale_negocio_id", "negocio_id"),
+        {"schema": "public"},
+    )
 
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, nullable=False)
-    total_points: Mapped[int] = mapped_column("Total_puntos", Integer, nullable=False)
-    name: Mapped[str] = mapped_column("Nombre", String, nullable=False)
-    description: Mapped[str | None] = mapped_column("Descripcion", Text, nullable=True)
-    image_url: Mapped[str | None] = mapped_column("Imagen_url", String, nullable=True)
-    likes: Mapped[int] = mapped_column(Integer, nullable=False)
-    total_value: Mapped[float] = mapped_column("Total_vale", DOUBLE_PRECISION, nullable=False)
-    config_id: Mapped[UUID] = mapped_column(
-        "Config_id",
-        PGUUID(as_uuid=True),
-        ForeignKey(
-            "public.CONFIG_PUNTOS.id",
-            name="fk_VALE_Config_id_CONFIG_PUNTOS_id",
-        ),
+    total_puntos: int = Field(nullable=False)
+    nombre: str = Field(max_length=160, nullable=False)
+    descripcion: str | None = Field(default=None, sa_type=Text, nullable=True)
+    imagen_url: str | None = Field(default=None, max_length=2048, nullable=True)
+    total_costo: Decimal = Field(sa_type=Numeric(14, 2), nullable=False)
+    categoria_id: UUID = Field(
+        foreign_key="public.categoria.id",
         nullable=False,
     )
+    negocio_id: UUID = Field(foreign_key="public.negocio.id", nullable=False)

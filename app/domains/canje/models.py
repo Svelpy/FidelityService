@@ -1,28 +1,80 @@
+from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import BigInteger, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.types import UserDefinedType
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Enum as SQLAlchemyEnum,
+    ForeignKeyConstraint,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlmodel import Field
 
 from app.core.base_model import BaseModel
+from app.shared.enums import EstadoCanje
 
 
-class ExistingEnum(UserDefinedType):
-    """Referencia al tipo PostgreSQL `enum` ya declarado en la base."""
+class Canje(BaseModel, table=True):
+    __tablename__ = "canje"
+    __table_args__ = (
+        UniqueConstraint("codigo_canje", name="uq_canje_codigo_canje"),
+        CheckConstraint(
+            "codigo_canje ~ '^[0-9]{6}$'",
+            name="ck_canje_codigo_seis_digitos",
+        ),
+        ForeignKeyConstraint(
+            ["vale_id", "negocio_id"],
+            ["public.vale.id", "public.vale.negocio_id"],
+            name="fk_canje_vale_negocio",
+        ),
+        ForeignKeyConstraint(
+            ["sucursal_id", "negocio_id"],
+            ["public.sucursal.id", "public.sucursal.negocio_id"],
+            name="fk_canje_sucursal_negocio",
+        ),
+        Index("ix_canje_cliente_id", "cliente_id"),
+        Index("ix_canje_dador_id", "dador_id"),
+        Index("ix_canje_vale_id", "vale_id"),
+        Index("ix_canje_sucursal_id", "sucursal_id"),
+        Index("ix_canje_negocio_id", "negocio_id"),
+        Index("ix_canje_config_punto_id", "config_punto_id"),
+        Index("ix_canje_status", "status"),
+        {"schema": "public"},
+    )
 
-    cache_ok = True
-
-    def get_col_spec(self, **kwargs: object) -> str:
-        return "enum"
-
-
-class Canje(BaseModel):
-    __tablename__ = "CANJE"
-    __table_args__ = {"schema": "public"}
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, nullable=False)
-    client_id: Mapped[UUID] = mapped_column("Cliente_id",PGUUID(as_uuid=True),ForeignKey("public.USUARIO.id",name="fk_CANJE_Cliente_id_USUARIO_id"),nullable=False)
-    giver_id: Mapped[UUID | None] = mapped_column("Dador_id",PGUUID(as_uuid=True),ForeignKey("public.USUARIO.id",name="fk_CANJE_Dador_id_USUARIO_id"),nullable=True)
-    voucher_id: Mapped[UUID] = mapped_column("Vale_id",PGUUID(as_uuid=True),ForeignKey("public.VALE.id",name="fk_CANJE_Vale_id_VALE_id"),nullable=False)
-    status: Mapped[str] = mapped_column("Status",ExistingEnum(),nullable=False,)
+    cliente_id: UUID = Field(foreign_key="public.usuario.id", nullable=False)
+    dador_id: UUID | None = Field(
+        default=None,
+        foreign_key="public.usuario.id",
+        nullable=True,
+    )
+    vale_id: UUID = Field(nullable=False)
+    status: EstadoCanje = Field(
+        default=EstadoCanje.PENDIENTE,
+        sa_type=SQLAlchemyEnum(
+            EstadoCanje,
+            name="estado_canje",
+            schema="public",
+            native_enum=True,
+        ),
+        nullable=False,
+    )
+    expires_at: datetime = Field(
+        sa_type=DateTime(timezone=True),
+        nullable=False,
+    )
+    codigo_canje: str = Field(sa_type=String(6), nullable=False)
+    sucursal_id: UUID = Field(nullable=False)
+    negocio_id: UUID = Field(nullable=False)
+    total_puntos: int = Field(nullable=False)
+    total_costo: Decimal = Field(sa_type=Numeric(14, 2), nullable=False)
+    referencia: str | None = Field(default=None, sa_type=Text, nullable=True)
+    config_punto_id: UUID = Field(
+        foreign_key="public.config_puntos.id",
+        nullable=False,
+    )

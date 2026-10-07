@@ -41,25 +41,28 @@ class AuthService:
         refresh_token: str,
         expires_at: datetime,
         family_id: UUID | None = None,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
     ) -> AuthSession:
         now = datetime.now(timezone.utc)
-        audit_now = now.replace(tzinfo=None)
         return AuthSession(
             user_id=user.id,
             family_id=family_id or uuid4(),
             refresh_token_hash=hash_refresh_token(refresh_token),
             expires_at=expires_at,
-            create_at=audit_now,
-            create_by=user.id,
-            update_at=audit_now,
-            update_by=user.id,
-            is_delete=False,
+            created_at=now,
+            created_by=user.id,
+            updated_at=now,
+            updated_by=user.id,
+            is_deleted=False,
+            user_agent=user_agent,
+            ip_address=ip_address,
         )
 
     @staticmethod
-    async def validate_user_access(user: User) -> None:
+    def validate_user_access(user: User) -> None:
         """Valida que el usuario no haya sido eliminado."""
-        if user.is_delete:
+        if user.is_deleted:
             raise AppException(
                 "Usuario no disponible.",
                 401,
@@ -71,12 +74,14 @@ class AuthService:
         db_session: AsyncSession,
         credentials: UserLogin,
         settings: Settings,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
     ) -> AuthTokens:
         """Autentica un usuario y genera sus tokens."""
         result = await db_session.execute(
             select(User).where(
-                User.email == str(credentials.email),
-                User.is_delete.is_(False),
+                User.ci == credentials.ci,
+                User.is_deleted.is_(False),
             )
         )
         user = result.scalar_one_or_none()
@@ -92,12 +97,12 @@ class AuthService:
         )
         if user is None or not password_is_valid:
             raise AppException(
-                "Email o contraseña incorrectos.",
+                "Cédula o contraseña incorrectas.",
                 401,
                 ErrorCode.AUTHENTICATION_FAILED,
             )
 
-        await AuthService.validate_user_access(user)
+        AuthService.validate_user_access(user)
         role = AuthService._get_user_role(user)
 
         access_token = create_access_token(
@@ -115,6 +120,8 @@ class AuthService:
             refresh_token=refresh_token,
             expires_at=datetime.now(timezone.utc)
             + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            user_agent=user_agent,
+            ip_address=ip_address,
         )
         db_session.add(auth_session)
 
@@ -136,15 +143,42 @@ class AuthService:
         family_id: UUID,
         reason: str,
     ) -> None:
+        now = datetime.now(timezone.utc)
         await db_session.execute(
             update(AuthSession)
             .where(
                 AuthSession.family_id == family_id,
                 AuthSession.revoked_at.is_(None),
+                AuthSession.is_deleted.is_(False),
             )
             .values(
-                revoked_at=datetime.now(timezone.utc),
+                revoked_at=now,
+                last_used_at=now,
                 revocation_reason=reason,
+                updated_at=now,
+            )
+        )
+
+    @staticmethod
+    async def revoke_for_user(
+        db_session: AsyncSession,
+        user_id: UUID,
+        reason: str,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        await db_session.execute(
+            update(AuthSession)
+            .where(
+                AuthSession.user_id == user_id,
+                AuthSession.revoked_at.is_(None),
+                AuthSession.is_deleted.is_(False),
+            )
+            .values(
+                revoked_at=now,
+                last_used_at=now,
+                revocation_reason=reason,
+                updated_at=now,
+                updated_by=user_id,
             )
         )
 
@@ -154,6 +188,8 @@ class AuthService:
         refresh_token: str | None,
         csrf_token: str | None,
         settings: Settings,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
     ) -> AuthTokens:
         if not refresh_token:
             raise AppException(
@@ -177,6 +213,7 @@ class AuthService:
             select(AuthSession)
             .where(
                 AuthSession.refresh_token_hash == hash_refresh_token(refresh_token),
+                AuthSession.is_deleted.is_(False),
             )
             .with_for_update()
         )
@@ -207,6 +244,12 @@ class AuthService:
             )
 
         if auth_session.expires_at <= now:
+            auth_session.revoked_at = now
+            auth_session.last_used_at = now
+            auth_session.revocation_reason = "expired"
+            auth_session.updated_at = now
+            auth_session.updated_by = auth_session.user_id
+            await db_session.commit()
             raise AppException(
                 "Refresh token expirado.",
                 401,
@@ -216,18 +259,24 @@ class AuthService:
         user_result = await db_session.execute(
             select(User).where(
                 User.id == auth_session.user_id,
-                User.is_delete.is_(False),
+                User.is_deleted.is_(False),
             )
         )
         user = user_result.scalar_one_or_none()
         if user is None:
+            await AuthService.revoke_session_family(
+                db_session,
+                auth_session.family_id,
+                "user_unavailable",
+            )
+            await db_session.commit()
             raise AppException(
-                "Usuario no encontrado.",
+                "Refresh token inválido.",
                 401,
                 ErrorCode.REFRESH_FAILED,
             )
 
-        await AuthService.validate_user_access(user)
+        AuthService.validate_user_access(user)
         role = AuthService._get_user_role(user)
         new_refresh_token = create_refresh_token()
         new_csrf_token = create_csrf_token(new_refresh_token, settings)
@@ -236,6 +285,8 @@ class AuthService:
             refresh_token=new_refresh_token,
             family_id=auth_session.family_id,
             expires_at=now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            user_agent=user_agent,
+            ip_address=ip_address,
         )
         db_session.add(new_session)
         await db_session.flush()
@@ -246,12 +297,15 @@ class AuthService:
                 AuthSession.id == auth_session.id,
                 AuthSession.revoked_at.is_(None),
                 AuthSession.expires_at > now,
+                AuthSession.is_deleted.is_(False),
             )
             .values(
                 revoked_at=now,
                 last_used_at=now,
                 revocation_reason="rotated",
                 replaced_by=new_session.id,
+                updated_at=now,
+                updated_by=user.id,
             )
         )
 
@@ -304,19 +358,33 @@ class AuthService:
             )
 
         result = await db_session.execute(
-            select(AuthSession).where(
+            select(AuthSession)
+            .where(
                 AuthSession.refresh_token_hash == hash_refresh_token(refresh_token),
+                AuthSession.is_deleted.is_(False),
             )
+            .with_for_update()
         )
         auth_session = result.scalar_one_or_none()
 
-        if auth_session is None or auth_session.revoked_at is not None:
+        if auth_session is None:
             return
 
-        now = datetime.now(timezone.utc)
-        auth_session.revoked_at = now
-        auth_session.last_used_at = now
-        auth_session.revocation_reason = "logout"
+        if auth_session.revoked_at is not None:
+            if auth_session.revocation_reason == "rotated":
+                await AuthService.revoke_session_family(
+                    db_session,
+                    auth_session.family_id,
+                    "logout",
+                )
+                await db_session.commit()
+            return
+
+        await AuthService.revoke_session_family(
+            db_session,
+            auth_session.family_id,
+            "logout",
+        )
 
         try:
             await db_session.commit()

@@ -1,20 +1,21 @@
 from uuid import UUID
 
-from sqlalchemy import String, Text
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Index, Text, UniqueConstraint
+from sqlmodel import Field
 
 from app.core.base_model import BaseModel
 
 
-class Sucursal(BaseModel):
-    __tablename__ = "SUCURSAL"
-    __table_args__ = {"schema": "public"}
+class Sucursal(BaseModel, table=True):
+    __tablename__ = "sucursal"
+    __table_args__ = (
+        UniqueConstraint("id", "negocio_id", name="uq_sucursal_id_negocio_id"),
+        Index("ix_sucursal_negocio_id", "negocio_id"),
+        {"schema": "public"},
+    )
 
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, nullable=False)
-    name: Mapped[str] = mapped_column("Nombre", String, nullable=False)
-    description: Mapped[str | None] = mapped_column("Descripcion", Text, nullable=True)
-    address: Mapped[str] = mapped_column("Direccion", Text, nullable=False)
-    location_url: Mapped[str | None] = mapped_column("Url_ubicacion", String, nullable=True)
-    phone: Mapped[str | None] = mapped_column("Telefono", String, nullable=True)
-    image_url: Mapped[str | None] = mapped_column("imagen_url", String, nullable=True)
+    direccion: str = Field(sa_type=Text, nullable=False)
+    url_ubicacion: str = Field(max_length=2048, nullable=False)
+    telefono: str | None = Field(default=None, max_length=32, nullable=True)
+    nombre: str = Field(max_length=160, nullable=False)
+    negocio_id: UUID = Field(foreign_key="public.negocio.id", nullable=False)

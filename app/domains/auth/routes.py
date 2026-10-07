@@ -18,6 +18,7 @@ from app.shared.schemas.errors import ErrorResponse
 from app.middlewares.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+REFRESH_COOKIE_PATH = "/api/v1/auth"
 
 WWW_AUTHENTICATE_HEADER = {
     "description": "Indica que el cliente debe autenticarse con Bearer.",
@@ -66,7 +67,7 @@ LOGIN_ERROR_RESPONSES = {
     **COMMON_ERROR_RESPONSES,
     401: {
         "model": ErrorResponse,
-        "description": "Email o contraseña incorrectos.",
+        "description": "Cédula o contraseña incorrectas.",
         "headers": {"WWW-Authenticate": WWW_AUTHENTICATE_HEADER},
     },
 }
@@ -129,7 +130,7 @@ COOKIE_OPENAPI = {
     response_model=TokenResponse,
     summary="Iniciar sesión",
     description=(
-        "Recibe username como el email y password mediante "
+        "Recibe username como la cédula de identidad y password mediante "
         "application/x-www-form-urlencoded. Devuelve el access token y "
         "csrf_token; además establece la cookie HttpOnly refresh_token."
     ),
@@ -144,21 +145,30 @@ async def login(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> TokenResponse:
     """
-    Iniciar sesión con correo y contraseña.
+    Iniciar sesión con cédula de identidad y contraseña.
     
     Emite un token JWT de acceso válido.
     """
     try:
-        credentials = UserLogin(email=form_data.username,password=form_data.password)
+        credentials = UserLogin(
+            ci=form_data.username,
+            password=form_data.password,
+        )
     except ValidationError as error:
         raise AppException(
             "Los datos enviados no son válidos.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             ErrorCode.VALIDATION_ERROR,
-            {"username": error.errors()[0]["msg"]},
+            {"ci": error.errors()[0]["msg"]},
         ) from error
 
-    tokens = await AuthService.login(db_session, credentials, settings)
+    tokens = await AuthService.login(
+        db_session,
+        credentials,
+        settings,
+        user_agent=request.headers.get("user-agent"),
+        ip_address=request.client.host if request.client else None,
+    )
     response.set_cookie(
         key=settings.REFRESH_TOKEN_COOKIE_NAME,
         value=tokens.refresh_token,
@@ -166,7 +176,7 @@ async def login(
         secure=settings.REFRESH_TOKEN_COOKIE_SECURE,
         samesite="lax",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-        path="/api/v1/auth",
+        path=REFRESH_COOKIE_PATH,
     )
     response.headers["Cache-Control"] = "no-store"
     return TokenResponse(
@@ -194,7 +204,10 @@ async def refresh(
     response: Response,
     db_session: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    csrf_token: Annotated[str | None,Header(alias="X-CSRF-Token")] = None,
+    csrf_token: Annotated[
+        str | None,
+        Header(alias="X-CSRF-Token"),
+    ] = None,
 ) -> TokenResponse:
     refresh_token = request.cookies.get(settings.REFRESH_TOKEN_COOKIE_NAME)
 
@@ -203,6 +216,8 @@ async def refresh(
         refresh_token=refresh_token,
         csrf_token=csrf_token,
         settings=settings,
+        user_agent=request.headers.get("user-agent"),
+        ip_address=request.client.host if request.client else None,
     )
 
     response.set_cookie(
@@ -212,7 +227,7 @@ async def refresh(
         secure=settings.REFRESH_TOKEN_COOKIE_SECURE,
         samesite="lax",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-        path="/api/v1/auth",
+        path=REFRESH_COOKIE_PATH,
     )
 
     response.headers["Cache-Control"] = "no-store"
@@ -241,7 +256,10 @@ async def logout(
     response: Response,
     db_session: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-    csrf_token: Annotated[str | None,Header(alias="X-CSRF-Token")] = None,
+    csrf_token: Annotated[
+        str | None,
+        Header(alias="X-CSRF-Token"),
+    ] = None,
 ) -> None:
     refresh_token = request.cookies.get(settings.REFRESH_TOKEN_COOKIE_NAME)
 
@@ -254,8 +272,12 @@ async def logout(
 
     response.delete_cookie(
         key=settings.REFRESH_TOKEN_COOKIE_NAME,
-        path="/api/v1/auth",
+        path=REFRESH_COOKIE_PATH,
+        secure=settings.REFRESH_TOKEN_COOKIE_SECURE,
+        httponly=True,
+        samesite="lax",
     )
+    response.headers["Cache-Control"] = "no-store"
 
 
 

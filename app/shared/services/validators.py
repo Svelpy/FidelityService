@@ -1,9 +1,33 @@
+from unicodedata import normalize
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import TypeVar
 
 
 ValidatedType = TypeVar("ValidatedType")
+
+def validator_phone(v: str) -> str:
+    normalize_phone=v.strip()
+    if not re.fullmatch(r'\d{6,20}', normalize_phone):
+        raise ValueError('El número de teléfono debe tener entre 6 y 20 dígitos')
+    return normalize_phone
+
+
+def validator_ci(value: str) -> str:
+    normalized_ci = value.strip()
+    if not re.fullmatch(r"\d{6,20}", normalized_ci):
+        raise ValueError('La cédula de identidad debe tener entre 6 y 20 dígitos')
+    return normalized_ci
+
+def validator_name(v: str) -> str:
+    normalized_name = v.strip()
+    if not re.fullmatch(r"^[a-zA-ZáéíóúÁÉÍÓÚüÜñÑ\s'-]+$", normalized_name):
+        raise ValueError('El nombre solo se permiten letras, espacios, guiones y apóstrofes')
+    return normalized_name 
+
+
+
+
 
 
 def validator_required_field(value: ValidatedType | None) -> ValidatedType:
@@ -26,13 +50,7 @@ def validator_custom_domain(value: object) -> str | None:
     return normalized_domain
 
 
-def validator_names(v: str | None) -> str | None:
-    if v is None:
-        return v
-    v = v.strip()
-    if not re.match(r"^[a-zA-ZáéíóúÁÉÍÓÚüÜñÑ\s'-]+$", v):
-        raise ValueError('Solo se permiten letras, espacios, guiones y apóstrofes')
-    return v 
+
 
 def validator_username(v: str | None) -> str | None:
     if v is None:
@@ -57,13 +75,6 @@ def validator_password(v: str) -> str:
         if not re.search(r'\d', v):
             raise ValueError('La contraseña debe contener al menos un número')
         return v
-
-def validator_phone(v: str | None) -> str | None:
-    if v is None:
-        return v
-    if not re.match(r'^\+\d{5,15}$', v):
-        raise ValueError('El número de teléfono debe tener entre 5 y 15 dígitos y comenzar con +')
-    return v
 
 
 
@@ -100,7 +111,11 @@ def validator_email(value: str) -> str:
         raise ValueError("El email debe ser texto.")
     return value.strip().lower()
 
-def validator_birth_date(value: datetime | None) -> datetime | None:
-    if value is not None and value.date() > datetime.now(timezone.utc).date():
+def validator_birth_date(value: date | datetime | None) -> date | datetime | None:
+    if value is None:
+        return None
+
+    value_date = value.date() if isinstance(value, datetime) else value
+    if value_date > datetime.now(timezone.utc).date():
         raise ValueError("La fecha de nacimiento no puede ser futura.")
     return value

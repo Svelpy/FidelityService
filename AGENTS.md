@@ -165,6 +165,70 @@ Los models definen exclusivamente:
 
 No contienen lógica HTTP ni reglas funcionales de negocio.
 
+### Integridad persistente del dominio
+
+Las siguientes invariantes son obligatorias y deben estar garantizadas por
+PostgreSQL mediante constraints, índices, claves foráneas o triggers de
+restricción, según corresponda. No es suficiente validarlas solamente en los
+services:
+
+- El `slug` de una categoría es único.
+- En una operación, `emisor_id` y `receptor_id` deben ser diferentes.
+- Todos los factores de conversión deben ser mayores que cero.
+- El código de canje es único.
+- El código de canje contiene exactamente seis dígitos. Debe persistirse
+  como `CHAR(6)` o un tipo textual equivalente, nunca como entero, para
+  conservar posibles ceros iniciales. PostgreSQL debe aplicar un `CHECK`
+  equivalente a `codigo_canje ~ '^[0-9]{6}$'` además de la restricción
+  `UNIQUE`.
+- Un vale solo puede canjearse en una sucursal perteneciente al mismo negocio
+  que el vale.
+- La pertenencia de vales y sucursales al mismo negocio debe garantizarse con
+  claves foráneas compuestas. Las tablas referenciadas deben declarar las
+  restricciones `UNIQUE` compuestas necesarias para soportarlas.
+- Si un usuario tiene el rol `SOCIO`, solo puede asignarse a sucursales cuyo
+  negocio sea de tipo `SOCIO`.
+- `SOCIO` es un rol de usuario propio y debe formar parte del enum `Role`; no
+  debe confundirse con el valor `SOCIO` de `TipoNegocio`.
+- Un usuario puede pertenecer como máximo a una sucursal. La relación se
+  representa mediante `usuario.sucursal_id`; no se crea una tabla intermedia
+  usuario-sucursal.
+- La compatibilidad entre el rol del usuario y el tipo de negocio de la
+  sucursal debe garantizarse a nivel de base de datos. Cuando no pueda
+  expresarse con una clave foránea compuesta o un `CHECK`, debe utilizarse un
+  constraint trigger de PostgreSQL mantenido mediante Alembic.
+- La cédula de identidad del usuario es obligatoria y única, pues es el
+  identificador utilizado para el login. La contraseña se persiste únicamente
+  mediante `password_hash`; nunca se almacena la contraseña en texto plano.
+- Los importes monetarios se almacenan con `NUMERIC(14, 2)` en PostgreSQL y
+  `Decimal` en Python. No se utiliza `float` ni `DOUBLE PRECISION` para dinero.
+- En `movimientos_puntos`, las referencias deben cumplir:
+  - `ACUMULA`: `operacion_id` obligatorio y `canje_id` nulo.
+  - `CANJE`: `canje_id` obligatorio y `operacion_id` nulo.
+  - `AJUSTE`: `operacion_id` y `canje_id` nulos.
+  - `EXPIRA`: `operacion_id` y `canje_id` nulos.
+  Estas combinaciones deben garantizarse con un `CHECK` de PostgreSQL.
+- En configuraciones con rango temporal, `end_date` puede ser nulo; cuando
+  exista, debe ser posterior a `start_date` mediante un `CHECK`.
+
+Los enums persistentes del dominio son:
+
+```text
+tipo_negocio    = MAIN | SOCIO
+estado_canje    = PENDIENTE | CANJEADO | EXPIRADO | CANCELADO
+tipo_movimiento = ACUMULA | CANJE | AJUSTE | EXPIRA
+```
+
+Sus valores deben definirse también como enums Python compartidos en
+`app/shared/enums.py`. Los tipos nativos de PostgreSQL y cualquier cambio en
+ellos se crean y administran exclusivamente mediante migraciones Alembic; no
+mediante SQL ejecutado durante el startup.
+
+Estas tablas son nuevas y deben utilizar nombres de tablas, columnas,
+constraints e índices en `snake_case` minúsculo. No se deben introducir
+identificadores PostgreSQL entrecomillados en mayúsculas como `"USUARIO"` o
+`"Cliente_id"`.
+
 ---
 
 ## 5. Soft delete y auditoría

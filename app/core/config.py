@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str = None
     CLOUDINARY_API_SECRET: str = None
     CLOUDINARY_FOLDER_NAME: str = None
+    #----------------------------------
+    # Resend (correo transaccional)
+    #----------------------------------
+    RESEND_API_KEY: str | None = None
+    RESEND_FROM_EMAIL: str = "Svelpy Support Team <no-reply@mail.svelpy.com>"
+    RESEND_REPLY_TO: str = "soporte@svelpy.com"
+    AUTH_FRONTEND_URL: str ="http://localhost:5173"
     # =================================
     # CORS
     # =================================

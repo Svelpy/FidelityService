@@ -20,14 +20,36 @@ def configure_cloudinary(settings: Settings) -> None:
     )
 
 class CloudinaryService:
+    @staticmethod
+    def _extract_public_id(url: str) -> str:
+        """
+        Extrae el public_id de una URL de Cloudinary.
+        """
+        try:
+            # Dividir por '/upload/' para obtener la parte derecha de la URL
+            parts = url.split("/upload/")
+            if len(parts) < 2:
+                raise ValueError("URL de Cloudinary inválida")
+            
+            # Quitar la versión (ej: 'v123456789/') si existe
+            right_part = parts[1]
+            if right_part.startswith("v"):
+                right_part = "/".join(right_part.split("/")[1:])
+            
+            # Quitar la extensión del archivo (ej: '.jpg')
+            public_id = right_part.rsplit(".", 1)[0]
+            return public_id
 
+        except Exception:
+            raise AppException("No se pudo extraer el identificador de la imagen", 400)
+    
     @staticmethod
     async def upload_image(
         file: UploadFile,
         folder: str,
         settings: Settings,
     ) -> dict[str, str]:
-         """
+        """
         Sube una imagen a Cloudinary.
 
         Retorna la URL segura y el public_id generado por Cloudinary.
@@ -66,10 +88,13 @@ class CloudinaryService:
             await file.seek(0)
 
     @staticmethod
-    async def delete_image(public_id: str) -> bool:
+    async def delete_image(image_url: str) -> bool:
         """
         Elimina una imagen de Cloudinary utilizando su public_id.
         """
+        if not image_url:
+            return False
+        public_id = CloudinaryService._extract_public_id(image_url)
         if not public_id:
             return False
             
@@ -81,13 +106,13 @@ class CloudinaryService:
         return response.get("result") == "ok"
 
     @staticmethod
-    async def safe_delete_image(public_id: str) -> bool:
+    async def safe_delete_image(image_url: str) -> bool:
         """
         Intenta eliminar una imagen sin interrumpir la operación principal.
         """
         try:
-            return await CloudinaryService.delete_image(public_id)
+            return await CloudinaryService.delete_image(image_url)
         except Exception:
-            logger.exception("No se pudo eliminar una imagen residual de Cloudinary: %s",public_id)
+            logger.exception("No se pudo eliminar una imagen residual de Cloudinary: %s",image_url)
             return False
 

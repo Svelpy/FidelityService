@@ -525,14 +525,16 @@ bloqueo de SVG
 tamaño máximo
 ```
 
-Guardar por separado:
+Guardar la URL segura de la imagen:
 
 ```text
 image_url
-image_public_id
 ```
 
-Usar `public_id` para eliminar o administrar recursos.
+Para eliminar o administrar recursos, la integration puede obtener el
+`public_id` desde una URL válida de Cloudinary mediante una función dedicada.
+La extracción debe permanecer centralizada en `integrations/cloudinary.py`; no
+debe duplicarse en routes ni services.
 
 Si el SDK ejecuta operaciones síncronas dentro del backend async, usar un mecanismo como `asyncio.to_thread()`.
 

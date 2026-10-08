@@ -788,16 +788,16 @@ Si el SDK es síncrono dentro de código async, usar:
 await asyncio.to_thread(...)
 ```
 
-Guardar:
+Guardar la URL segura de la imagen:
 
 ```text
 image_url
-image_public_id
 ```
 
-en columnas separadas.
-
-No extraer `public_id` desde la URL cuando Cloudinary ya lo devuelve.
+Para eliminar o administrar un recurso, `CloudinaryService` puede obtener el
+`public_id` desde una URL válida de Cloudinary mediante una función dedicada.
+Esta extracción es una responsabilidad técnica de la integration y no debe
+duplicarse en services o routes.
 
 ## 14.2 Resend
 

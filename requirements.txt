@@ -28,7 +28,7 @@ slowapi>=0.1.10,<0.2.0
 
 # ===== Procesamiento de Imágenes =====
 Pillow>=11.0.0
-
+resend[async]>=2.34.0,<3.0.0
 
 pytest
 pytest-cov

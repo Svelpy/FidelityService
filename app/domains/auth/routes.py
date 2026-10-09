@@ -8,14 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.domains.auth.schemas import (
-    UserLogin,
     TokenResponse,
+    UserLogin,
 )
 from app.domains.auth.services import AuthService
+from app.middlewares.limiter import limiter
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 from app.shared.schemas.errors import ErrorResponse
-from app.middlewares.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 REFRESH_COOKIE_PATH = "/api/v1/auth"
@@ -106,7 +106,10 @@ TOKEN_SUCCESS_RESPONSES = {
 LOGOUT_SUCCESS_RESPONSES = {
     204: {
         "description": "Sesión revocada y cookie refresh_token eliminada.",
-        "headers": {"Set-Cookie": SET_COOKIE_HEADER},
+        "headers": {
+            "Set-Cookie": SET_COOKIE_HEADER,
+            "Cache-Control": CACHE_CONTROL_HEADER,
+        },
     }
 }
 
@@ -124,6 +127,33 @@ COOKIE_OPENAPI = {
         }
     ]
 }
+
+
+def _set_refresh_cookie(
+    response: Response,
+    settings: Settings,
+    refresh_token: str,
+) -> None:
+    response.set_cookie(
+        key=settings.REFRESH_TOKEN_COOKIE_NAME,
+        value=refresh_token,
+        httponly=True,
+        secure=settings.REFRESH_TOKEN_COOKIE_SECURE,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path=REFRESH_COOKIE_PATH,
+    )
+
+
+def _delete_refresh_cookie(response: Response, settings: Settings) -> None:
+    response.delete_cookie(
+        key=settings.REFRESH_TOKEN_COOKIE_NAME,
+        path=REFRESH_COOKIE_PATH,
+        secure=settings.REFRESH_TOKEN_COOKIE_SECURE,
+        httponly=True,
+        samesite="lax",
+    )
+
 
 @router.post(
     "/login",
@@ -155,11 +185,15 @@ async def login(
             password=form_data.password,
         )
     except ValidationError as error:
+        error_details = {
+            ".".join(str(part) for part in item["loc"]): item["msg"]
+            for item in error.errors()
+        }
         raise AppException(
             "Los datos enviados no son válidos.",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             ErrorCode.VALIDATION_ERROR,
-            {"ci": error.errors()[0]["msg"]},
+            error_details,
         ) from error
 
     tokens = await AuthService.login(
@@ -169,15 +203,7 @@ async def login(
         user_agent=request.headers.get("user-agent"),
         ip_address=request.client.host if request.client else None,
     )
-    response.set_cookie(
-        key=settings.REFRESH_TOKEN_COOKIE_NAME,
-        value=tokens.refresh_token,
-        httponly=True,
-        secure=settings.REFRESH_TOKEN_COOKIE_SECURE,
-        samesite="lax",
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-        path=REFRESH_COOKIE_PATH,
-    )
+    _set_refresh_cookie(response, settings, tokens.refresh_token)
     response.headers["Cache-Control"] = "no-store"
     return TokenResponse(
         access_token=tokens.access_token,
@@ -220,15 +246,7 @@ async def refresh(
         ip_address=request.client.host if request.client else None,
     )
 
-    response.set_cookie(
-        key=settings.REFRESH_TOKEN_COOKIE_NAME,
-        value=tokens.refresh_token,
-        httponly=True,
-        secure=settings.REFRESH_TOKEN_COOKIE_SECURE,
-        samesite="lax",
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-        path=REFRESH_COOKIE_PATH,
-    )
+    _set_refresh_cookie(response, settings, tokens.refresh_token)
 
     response.headers["Cache-Control"] = "no-store"
     return TokenResponse(
@@ -270,13 +288,7 @@ async def logout(
         settings=settings,
     )
 
-    response.delete_cookie(
-        key=settings.REFRESH_TOKEN_COOKIE_NAME,
-        path=REFRESH_COOKIE_PATH,
-        secure=settings.REFRESH_TOKEN_COOKIE_SECURE,
-        httponly=True,
-        samesite="lax",
-    )
+    _delete_refresh_cookie(response, settings)
     response.headers["Cache-Control"] = "no-store"
 
 

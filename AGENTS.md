@@ -288,11 +288,35 @@ ResetPassword
 
 Los schemas de respuesta que se construyan desde objetos ORM deben utilizar `ConfigDict(from_attributes=True)`.
 
-Las actualizaciones `PATCH` deben usar campos opcionales y los services deben procesarlas con:
+En todos los schemas `Update` utilizados por operaciones `PATCH`, cada campo
+modificable debe poder omitirse y se declara siempre con este patrón:
+
+```python
+field: T | None = Field(default=None)
+```
+
+El tipo `T | None` permite representar el valor temporal usado cuando el campo
+se omite, y `default=None` hace que el campo no sea obligatorio en la petición.
+Esto no significa que todos los campos persistentes sean nullable.
+
+Cada `field_validator` debe aplicar explícitamente una de estas políticas:
+
+- si la columna es nullable, aceptar `None` y devolver `None` para permitir que
+  el cliente elimine su valor;
+- si la columna no es nullable, rechazar un `None` enviado explícitamente;
+- si existe un valor concreto, delegar su validación de tipo, formato y
+  normalización en la función `object → T` correspondiente de
+  `shared/services/validators.py`.
+
+Los services deben procesar estas actualizaciones con:
 
 ```python
 model_dump(exclude_unset=True)
 ```
+
+No utilizar `exclude_none=True` para este flujo, porque eliminaría también los
+`None` enviados explícitamente y haría imposible limpiar campos nullable. Los
+valores explícitos `0` y `False` tampoco deben descartarse.
 
 ---
 
@@ -319,6 +343,24 @@ Los validadores reutilizables sin acceso a base de datos viven en:
 ```text
 shared/services/validators.py
 ```
+
+Todas las funciones reutilizables de validación reciben el valor de entrada
+como `object`, comprueban internamente su tipo en tiempo de ejecución y
+devuelven un valor concreto validado o normalizado:
+
+```text
+object → T
+```
+
+Cuando el tipo recibido no es válido, deben lanzar `ValueError`; no deben
+depender de métodos del tipo esperado antes de comprobarlo. Esta convención
+permite reutilizarlas tanto con `field_validator(mode="before")` como después
+del tipado de Pydantic.
+
+Estas funciones no devuelven `None`. La decisión de permitir, conservar o
+rechazar un valor `None` pertenece al schema y debe expresarse explícitamente
+en su `field_validator`. Esto permite diferenciar entre un campo nullable y un
+campo que puede omitirse en un `PATCH`, pero no establecerse como `null`.
 
 ---
 
@@ -660,7 +702,36 @@ integrations → routes
 
 ---
 
-## 19. Reglas para cambios
+## 19. Imports y archivos `__init__.py`
+
+Los archivos `__init__.py` no deben utilizarse para reexportar clases,
+funciones, schemas, modelos, enums ni otros símbolos definidos en módulos del
+paquete.
+
+No añadir imports de reexportación ni declaraciones `__all__` a estos archivos.
+Cuando un módulo necesite un símbolo, debe importarlo mediante la ruta completa
+del archivo donde se encuentra definido.
+
+Usar:
+
+```python
+from app.domains.users.models import User
+from app.domains.users.schemas import UserResponse
+```
+
+No usar:
+
+```python
+from app.domains.users import User, UserResponse
+```
+
+Como regla general, los archivos `__init__.py` deben permanecer vacíos, salvo
+que exista una necesidad técnica explícita que no consista en crear una fachada
+de imports.
+
+---
+
+## 20. Reglas para cambios
 
 Antes de modificar código:
 
@@ -682,7 +753,7 @@ Antes de modificar código:
 
 ---
 
-## 20. Cuándo consultar `ARCHITECTURE.md`
+## 21. Cuándo consultar `ARCHITECTURE.md`
 
 No leer `ARCHITECTURE.md` antes de cada cambio.
 

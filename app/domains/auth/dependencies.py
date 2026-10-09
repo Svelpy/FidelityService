@@ -20,9 +20,22 @@ from app.shared.services.permissions import has_permission
 
 
 # auto_error=False permite que el header sea opcional (para endpoints públicos)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+OAUTH2_TOKEN_URL = "api/v1/auth/login"
+OAUTH2_REFRESH_URL = "api/v1/auth/refresh"
+OAUTH2_SCHEME_NAME = "BearerAuth"
+OAUTH2_DESCRIPTION = "JWT de acceso enviado mediante Authorization: Bearer."
+
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl=OAUTH2_TOKEN_URL,
+    refreshUrl=OAUTH2_REFRESH_URL,
+    scheme_name=OAUTH2_SCHEME_NAME,
+    description=OAUTH2_DESCRIPTION,
+)
 oauth2_scheme_optional = OAuth2PasswordBearer(
-    tokenUrl="api/v1/auth/login",
+    tokenUrl=OAUTH2_TOKEN_URL,
+    refreshUrl=OAUTH2_REFRESH_URL,
+    scheme_name=OAUTH2_SCHEME_NAME,
+    description=OAUTH2_DESCRIPTION,
     auto_error=False,
 )
 

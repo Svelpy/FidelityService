@@ -1,7 +1,7 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from pydantic import Field, SecretStr, model_validator
 Environment = Literal["development","staging","production","test"]
 
 class Settings(BaseSettings):
@@ -20,18 +20,41 @@ class Settings(BaseSettings):
     DATABASE_URL: str | None = None
     TEST_DATABASE_URL: str | None = None
     # =================================
+    # Seeds
+    # =================================
+    SEED_ADMIN_CI_1: str | None = None
+    SEED_ADMIN_PHONE_1: str | None = None
+    SEED_ADMIN_EMAIL_1: str | None = None
+    SEED_ADMIN_NAME_1: str | None = None
+    SEED_ADMIN_LASTNAME_1: str | None = None
+    SEED_ADMIN_PASSWORD_1: SecretStr | None = None
+
+    SEED_ADMIN_CI_2: str | None = None
+    SEED_ADMIN_PHONE_2: str | None = None
+    SEED_ADMIN_EMAIL_2: str | None = None
+    SEED_ADMIN_NAME_2: str | None = None
+    SEED_ADMIN_LASTNAME_2: str | None = None
+    SEED_ADMIN_PASSWORD_2: SecretStr | None = None
+
+    SEED_ADMIN_CI_3: str | None = None
+    SEED_ADMIN_PHONE_3: str | None = None
+    SEED_ADMIN_EMAIL_3: str | None = None
+    SEED_ADMIN_NAME_3: str | None = None
+    SEED_ADMIN_LASTNAME_3: str | None = None
+    SEED_ADMIN_PASSWORD_3: SecretStr | None = None
+    # =================================
     # JWT
     # =================================
     SECRET_KEY: str
     CSRF_SECRET_KEY: str
-    ALGORITHM: str = "HS256"
+    ALGORITHM: Literal["HS256"] = "HS256"
     # =================================
     # Cloudinary
     # =================================
-    CLOUDINARY_CLOUD_NAME: str = None
-    CLOUDINARY_API_KEY: str = None
-    CLOUDINARY_API_SECRET: str = None
-    CLOUDINARY_FOLDER_NAME: str = None
+    CLOUDINARY_CLOUD_NAME: str | None = None
+    CLOUDINARY_API_KEY: str | None = None
+    CLOUDINARY_API_SECRET: str | None = None
+    CLOUDINARY_FOLDER_NAME: str | None = None
     #----------------------------------
     # Resend (correo transaccional)
     #----------------------------------
@@ -43,7 +66,7 @@ class Settings(BaseSettings):
     # CORS
     # =================================
     DEV_ORIGINS: str = "http://localhost:5173,http://localhost:5174,http://localhost:5175"
-    PROD_ORIGINS: str = None
+    PROD_ORIGINS: str | None = None
     @property
     def CORS_ORIGINS_LIST(self) -> list[str]:
 
@@ -56,9 +79,9 @@ class Settings(BaseSettings):
             raise ValueError("Debe configurarse PROD_ORIGINS en producción")
         return [origin.strip() for origin in origins.split(",") if origin.strip()]
 
-    ACCESS_TOKEN_EXPIRE_MINUTES_DEVELOPMENT: int = 60
-    ACCESS_TOKEN_EXPIRE_MINUTES_STAGING: int = 15
-    ACCESS_TOKEN_EXPIRE_MINUTES_PRODUCTION: int = 15
+    ACCESS_TOKEN_EXPIRE_MINUTES_DEVELOPMENT: int = Field(default=60, gt=0)
+    ACCESS_TOKEN_EXPIRE_MINUTES_STAGING: int = Field(default=15, gt=0)
+    ACCESS_TOKEN_EXPIRE_MINUTES_PRODUCTION: int = Field(default=15, gt=0)
     @property
     def ACCESS_TOKEN_EXPIRE_MINUTES(self) -> int:
         durations = {
@@ -69,9 +92,9 @@ class Settings(BaseSettings):
         }
         return durations[self.ENVIRONMENT]
 
-    REFRESH_TOKEN_EXPIRE_DAYS_DEVELOPMENT: int = 7
-    REFRESH_TOKEN_EXPIRE_DAYS_STAGING: int = 7
-    REFRESH_TOKEN_EXPIRE_DAYS_PRODUCTION: int = 7
+    REFRESH_TOKEN_EXPIRE_DAYS_DEVELOPMENT: int = Field(default=7, gt=0)
+    REFRESH_TOKEN_EXPIRE_DAYS_STAGING: int = Field(default=7, gt=0)
+    REFRESH_TOKEN_EXPIRE_DAYS_PRODUCTION: int = Field(default=7, gt=0)
     @property
     def REFRESH_TOKEN_EXPIRE_DAYS(self) -> int:
         durations = {
@@ -91,7 +114,18 @@ class Settings(BaseSettings):
     def DEBUG(self) -> bool:
         return self.ENVIRONMENT == "development"
 
+    @model_validator(mode="after")
+    def validate_security_settings(self) -> Self:
+        if len(self.SECRET_KEY.encode("utf-8")) < 32:
+            raise ValueError("SECRET_KEY debe contener al menos 32 bytes.")
 
+        if len(self.CSRF_SECRET_KEY.encode("utf-8")) < 32:
+            raise ValueError("CSRF_SECRET_KEY debe contener al menos 32 bytes.")
+
+        if self.SECRET_KEY == self.CSRF_SECRET_KEY:
+            raise ValueError("SECRET_KEY y CSRF_SECRET_KEY deben ser diferentes.")
+
+        return self
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

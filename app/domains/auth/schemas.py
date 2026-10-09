@@ -5,19 +5,24 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.shared.enums import Role
-from app.shared.services.validators import validator_ci
+from app.shared.services.validators import validator_ci, validator_password
 
 
 class UserLogin(BaseModel):
     """Credenciales de acceso mediante cédula y contraseña."""
 
-    ci: str = Field(min_length=6, max_length=10)
-    password: str = Field(min_length=1, max_length=100)
+    ci: str = Field(min_length=6, max_length=20)
+    password: str = Field(min_length=6, max_length=255)
 
     @field_validator("ci", mode="before")
     @classmethod
-    def validate_ci(cls, value: str) -> str:
+    def validate_ci(cls, value: object) -> str:
         return validator_ci(value)
+
+    @field_validator("password", mode="before")
+    @classmethod
+    def validate_password(cls, value: object) -> str:
+        return validator_password(value)
 
     model_config = ConfigDict(extra="forbid")
 

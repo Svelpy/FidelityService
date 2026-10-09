@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
@@ -5,6 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.logging import get_logger
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
@@ -22,13 +24,24 @@ from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 
 
+logger = get_logger(__name__)
+
+
 class AuthService:
+
+    @staticmethod
+    async def _commit(db_session: AsyncSession) -> None:
+        try:
+            await db_session.commit()
+        except Exception:
+            await db_session.rollback()
+            raise
 
     @staticmethod
     def _get_user_role(user: User) -> Role:
         try:
             return user.role if isinstance(user.role, Role) else Role(user.role)
-        except ValueError as error:
+        except (TypeError, ValueError) as error:
             raise AppException(
                 "El rol del usuario no es válido.",
                 401,
@@ -91,7 +104,8 @@ class AuthService:
             if user is not None and user.password_hash
             else DUMMY_PASSWORD_HASH
         )
-        password_is_valid = verify_password(
+        password_is_valid = await asyncio.to_thread(
+            verify_password,
             credentials.password,
             password_hash_to_verify,
         )
@@ -124,12 +138,9 @@ class AuthService:
             ip_address=ip_address,
         )
         db_session.add(auth_session)
+        await AuthService._commit(db_session)
 
-        try:
-            await db_session.commit()
-        except Exception:
-            await db_session.rollback()
-            raise
+        logger.info("Inicio de sesión exitoso: user_id=%s", user.id)
 
         return AuthTokens(
             access_token=access_token,
@@ -153,9 +164,9 @@ class AuthService:
             )
             .values(
                 revoked_at=now,
-                last_used_at=now,
                 revocation_reason=reason,
                 updated_at=now,
+                updated_by=AuthSession.user_id,
             )
         )
 
@@ -175,7 +186,6 @@ class AuthService:
             )
             .values(
                 revoked_at=now,
-                last_used_at=now,
                 revocation_reason=reason,
                 updated_at=now,
                 updated_by=user_id,
@@ -236,7 +246,11 @@ class AuthService:
                     auth_session.family_id,
                     "reuse_detected",
                 )
-                await db_session.commit()
+                await AuthService._commit(db_session)
+                logger.warning(
+                    "Reutilización de refresh token detectada: family_id=%s",
+                    auth_session.family_id,
+                )
             raise AppException(
                 "Refresh token ya utilizado.",
                 401,
@@ -249,7 +263,7 @@ class AuthService:
             auth_session.revocation_reason = "expired"
             auth_session.updated_at = now
             auth_session.updated_by = auth_session.user_id
-            await db_session.commit()
+            await AuthService._commit(db_session)
             raise AppException(
                 "Refresh token expirado.",
                 401,
@@ -269,7 +283,7 @@ class AuthService:
                 auth_session.family_id,
                 "user_unavailable",
             )
-            await db_session.commit()
+            await AuthService._commit(db_session)
             raise AppException(
                 "Refresh token inválido.",
                 401,
@@ -317,18 +331,19 @@ class AuthService:
                 ErrorCode.REFRESH_FAILED,
             )
 
-        try:
-            await db_session.commit()
-        except Exception:
-            await db_session.rollback()
-            raise
-
         access_token = create_access_token(
             data={
                 "sub": str(user.id),
                 "role": role.value,
             },
             settings=settings,
+        )
+        await AuthService._commit(db_session)
+
+        logger.info(
+            "Sesión renovada: user_id=%s family_id=%s",
+            user.id,
+            auth_session.family_id,
         )
 
         return AuthTokens(
@@ -377,7 +392,12 @@ class AuthService:
                     auth_session.family_id,
                     "logout",
                 )
-                await db_session.commit()
+                await AuthService._commit(db_session)
+                logger.info(
+                    "Familia de sesión cerrada: user_id=%s family_id=%s",
+                    auth_session.user_id,
+                    auth_session.family_id,
+                )
             return
 
         await AuthService.revoke_session_family(
@@ -385,9 +405,10 @@ class AuthService:
             auth_session.family_id,
             "logout",
         )
+        await AuthService._commit(db_session)
 
-        try:
-            await db_session.commit()
-        except Exception:
-            await db_session.rollback()
-            raise
+        logger.info(
+            "Sesión cerrada: user_id=%s family_id=%s",
+            auth_session.user_id,
+            auth_session.family_id,
+        )

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Index, String, Text
+from sqlalchemy import CheckConstraint, DateTime, Index, String, Text, UniqueConstraint
 from sqlmodel import Field
 
 from app.core.base_model import BaseModel
@@ -10,6 +10,27 @@ from app.core.base_model import BaseModel
 class AuthSession(BaseModel, table=True):
     __tablename__ = "auth_sessions"
     __table_args__ = (
+        UniqueConstraint(
+            "replaced_by",
+            name="uq_auth_sessions_replaced_by",
+        ),
+        CheckConstraint(
+            "expires_at > created_at",
+            name="ck_auth_sessions_expiration_after_creation",
+        ),
+        CheckConstraint(
+            "(revoked_at IS NULL AND revocation_reason IS NULL) OR "
+            "(revoked_at IS NOT NULL AND revocation_reason IS NOT NULL)",
+            name="ck_auth_sessions_revocation_consistency",
+        ),
+        CheckConstraint(
+            "replaced_by IS NULL OR revoked_at IS NOT NULL",
+            name="ck_auth_sessions_replacement_requires_revocation",
+        ),
+        CheckConstraint(
+            "replaced_by IS NULL OR replaced_by <> id",
+            name="ck_auth_sessions_replacement_not_self",
+        ),
         Index(
             "ux_auth_sessions_refresh_token_hash",
             "refresh_token_hash",
@@ -26,7 +47,6 @@ class AuthSession(BaseModel, table=True):
             "revoked_at",
         ),
         Index("ix_auth_sessions_expires_at", "expires_at"),
-        Index("ix_auth_sessions_replaced_by", "replaced_by"),
         {"schema": "public"},
     )
 

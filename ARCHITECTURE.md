@@ -533,13 +533,28 @@ No incluye normalmente auditoría ni ID.
 
 ## Update
 
-Los campos modificables son opcionales para `PATCH`.
+Todos los campos modificables de un schema `Update` son omitibles para `PATCH`
+y se declaran siempre como:
+
+```python
+field: T | None = Field(default=None)
+```
+
+El default permite omitir el campo. El `field_validator` del schema decide de
+forma explícita si un `None` enviado por el cliente se conserva para limpiar
+una columna nullable o se rechaza porque la columna no admite `NULL`. Cuando
+existe un valor concreto, el schema delega en un validador reutilizable
+`object → T` que comprueba internamente el tipo recibido.
 
 Los services utilizan:
 
 ```python
 data.model_dump(exclude_unset=True)
 ```
+
+`exclude_unset=True` elimina únicamente los campos omitidos y conserva valores
+explícitos como `None`, `0` y `False`. No se utiliza `exclude_none=True` en este
+flujo, ya que impediría limpiar campos nullable.
 
 ## Response
 
@@ -606,6 +621,23 @@ Los validadores reutilizables sin base de datos viven en:
 ```text
 shared/services/validators.py
 ```
+
+Todas las funciones reutilizables de validación reciben la entrada como
+`object`, comprueban internamente su tipo en tiempo de ejecución y devuelven un
+valor concreto validado o normalizado:
+
+```text
+object → T
+```
+
+Un tipo incorrecto produce `ValueError`. Las funciones pueden reutilizarse
+tanto en `field_validator(mode="before")` como después del tipado de Pydantic,
+sin asumir que la entrada cruda ya tiene el tipo esperado.
+
+Estas funciones no devuelven `None`. La nulabilidad se resuelve de forma
+explícita en el `field_validator` del schema que conoce el significado de la
+operación. En un `PATCH`, el schema también distingue entre omitir un campo y
+enviarlo expresamente como `null`.
 
 ---
 
@@ -1265,6 +1297,31 @@ integrations → routes
 ```
 
 La dependencia directa de `middlewares/exception_handlers.py` hacia `ErrorLog` es una excepción limitada al registro global de errores.
+
+---
+
+## 20.1 Imports y archivos `__init__.py`
+
+Los archivos `__init__.py` no funcionan como fachadas de importación y no
+reexportan símbolos definidos en otros módulos. No deben contener imports de
+reexportación ni declaraciones `__all__`.
+
+Cada dependencia se importa desde el archivo concreto donde está definida:
+
+```python
+from app.domains.users.models import User
+from app.domains.users.schemas import UserResponse
+```
+
+No se permiten imports abreviados desde el paquete:
+
+```python
+from app.domains.users import User, UserResponse
+```
+
+Como regla general, `__init__.py` permanece vacío. Solo puede contener código
+cuando exista una necesidad técnica explícita distinta de reexportar elementos
+del paquete.
 
 ---
 

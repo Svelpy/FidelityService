@@ -9,8 +9,8 @@ asyncpg>=0.30.0
 alembic>=1.14.0
 
 # ===== Autenticación y Seguridad =====
-python-jose[cryptography]>=3.3.0
-pwdlib[argon2]
+python-jose[cryptography]>=3.5.0,<4.0.0
+pwdlib[argon2]>=0.3.0,<1.0.0
 # ===== Validación de Datos =====
 pydantic[email]>=2.10.0
 pydantic-settings>=2.7.0

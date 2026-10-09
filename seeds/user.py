@@ -12,6 +12,7 @@ from app.core.database import (
 )
 from app.core.logging import get_logger, setup_logging
 from app.core.security import hash_password
+import app.domains.model_registry  # noqa: F401
 from app.domains.users.models import User
 from app.shared.enums import Genero, Role
 from app.shared.services.validators import (

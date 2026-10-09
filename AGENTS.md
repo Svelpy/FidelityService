@@ -450,6 +450,24 @@ Depends(get_db)
 
 Código global fuera del flujo normal de `Depends()` puede usar `app.state.db_session_factory`.
 
+El proyecto utiliza exactamente dos bases de datos, seleccionadas únicamente
+mediante `ENVIRONMENT`:
+
+```text
+production                    → DATABASE_URL
+development | test | staging → TEST_DATABASE_URL
+```
+
+`DATABASE_URL` está reservada para los datos reales de producción.
+`TEST_DATABASE_URL` es la base no productiva compartida por desarrollo,
+pruebas y staging. Mientras estos entornos compartan la misma base, las pruebas
+automatizadas no deben vaciar tablas ni destruir datos sin una protección
+explícita.
+
+La selección de la base no depende de `DEBUG`. Tanto la aplicación en
+`core/database.py` como Alembic en `migrations/env.py` deben aplicar exactamente
+la misma regla.
+
 ---
 
 ## 11. Alembic

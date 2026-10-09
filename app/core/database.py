@@ -17,12 +17,12 @@ logger = get_logger(__name__)
 
 
 def _get_database_url(settings: Settings) -> str:
-    if settings.ENVIRONMENT == "test":
-        database_url = settings.TEST_DATABASE_URL
-        variable_name = "TEST_DATABASE_URL"
-    else:
+    if settings.ENVIRONMENT == "production":
         database_url = settings.DATABASE_URL
         variable_name = "DATABASE_URL"
+    else:
+        database_url = settings.TEST_DATABASE_URL
+        variable_name = "TEST_DATABASE_URL"
 
     if not database_url:
         raise ValueError(f"Debe configurarse {variable_name} para PostgreSQL")

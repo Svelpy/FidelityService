@@ -233,6 +233,22 @@ Esto evita configuraciones contradictorias como `ENVIRONMENT=production` y `DEBU
 
 `core/database.py` administra exclusivamente PostgreSQL.
 
+El proyecto mantiene dos bases de datos:
+
+```text
+ENVIRONMENT=production                    → DATABASE_URL
+ENVIRONMENT=development | test | staging → TEST_DATABASE_URL
+```
+
+`DATABASE_URL` contiene exclusivamente la base productiva. La base indicada por
+`TEST_DATABASE_URL` se comparte entre los tres entornos no productivos. Por
+ello, cualquier prueba destructiva debe estar protegida explícitamente mientras
+se mantenga esta decisión.
+
+La URL se selecciona mediante `ENVIRONMENT`, nunca mediante `DEBUG`. La API y
+Alembic deben implementar la misma selección para impedir que una migración se
+aplique a una base distinta de la utilizada por la aplicación.
+
 Responsabilidades:
 
 ```text

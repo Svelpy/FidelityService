@@ -17,10 +17,16 @@ from app.shared.services.validators import (
 
 class UserRegistrationData(BaseModel):
     """Schema para auto-registro."""
-
+    #OBLIGATORIOS
     ci: str = Field(..., min_length=6, max_length=20)
     telefono: str = Field(..., min_length=6, max_length=20)
     nombre: str = Field(..., min_length=2, max_length=60)
+    #OPCIONALES
+    genero: Genero = Field(default=Genero.O)
+    apellidos: str | None = Field(default=None, min_length=2, max_length=120)
+    email: EmailStr | None = Field(default=None)
+    birth_date: date | None = Field(default=None)
+    direccion: str | None = Field(default=None, min_length=2, max_length=120)
 
     @field_validator("telefono", mode="before")
     @classmethod
@@ -43,23 +49,40 @@ class UserRegistrationData(BaseModel):
             raise ValueError("El nombre no puede ser null.")
         return validator_name(value)
 
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "example": {
-                "ci": "12345678",
-                "telefono": "71234567",
-                "nombre": "Ana",
-            }
-        },
-    )
+    @field_validator("genero")
+    @classmethod
+    def validate_gender(cls, value: Genero | None) -> Genero:
+        if value is None:
+            raise ValueError("El género no puede ser null.")
+        return value
 
-class UserCreate(UserRegistrationData):
-    """Schema para crear un usuario desde el panel administrativo."""
+    @field_validator("apellidos", mode="before")
+    @classmethod
+    def validate_last_name(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return validator_name(value)
 
-    role: Role = Field(default=Role.CLIENTE)
-    sucursal_id: UUID | None = Field(default=None)
-    genero: Genero = Field(default=Genero.O)
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return validator_email(value)
+
+    @field_validator("birth_date")
+    @classmethod
+    def validate_birth_date(cls, value: date | None) -> date | None:
+        if value is None:
+            return None
+        return validator_birth_date(value)
+
+    @field_validator("direccion", mode="before")
+    @classmethod
+    def validate_address(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return validator_address(value)
 
     model_config = ConfigDict(
         extra="forbid",
@@ -69,6 +92,40 @@ class UserCreate(UserRegistrationData):
                 "telefono": "71234567",
                 "nombre": "Ana",
                 "genero": "F",
+                "apellidos": "Pérez López",
+                "email": "ana@example.com",
+                "birth_date": "1995-04-18",
+                "direccion": "Avenida Principal 123",
+            }
+        },
+    )
+
+class UserCreate(UserRegistrationData):
+    """Schema para crear un usuario desde el panel administrativo."""
+    #OBLIGATORIOS
+    role: Role = Field(...)
+    #OPCIONALES
+    sucursal_id: UUID | None = Field(default=None)
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, value: Role | None) -> Role:
+        if value is None:
+            raise ValueError("El rol no puede ser null.")
+        return value
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "ci": "12345678",
+                "telefono": "71234567",
+                "nombre": "Ana",
+                "genero": "F",
+                "apellidos": "Pérez López",
+                "email": "ana@example.com",
+                "birth_date": "1995-04-18",
+                "direccion": "Avenida Principal 123",
                 "role": "CLIENTE",
                 "sucursal_id": None,
             }

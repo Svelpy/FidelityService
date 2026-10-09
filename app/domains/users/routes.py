@@ -127,6 +127,7 @@ async def create_user(
         db_session,
         data,
         actor_id=current_user.id,
+        actor_role=current_user.role,
     )
 
 
@@ -147,6 +148,7 @@ async def reset_user_password(
         user_id,
         data,
         current_user.id,
+        current_user.role,
     )
 
 
@@ -181,6 +183,7 @@ async def update_user(
         user_id,
         data,
         current_user.id,
+        current_user.role,
     )
 
 
@@ -195,4 +198,9 @@ async def delete_user(
     current_user: Annotated[CurrentUser, Depends(require_permission(Module.USUARIO, Action.DELETE))],
     db_session: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
-    await UserService.delete(db_session, user_id, current_user.id)
+    await UserService.delete(
+        db_session,
+        user_id,
+        current_user.id,
+        current_user.role,
+    )

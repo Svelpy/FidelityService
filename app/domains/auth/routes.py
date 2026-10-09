@@ -12,6 +12,8 @@ from app.domains.auth.schemas import (
     UserLogin,
 )
 from app.domains.auth.services import AuthService
+from app.domains.users.schemas import UserRegistrationData, UserResponse
+from app.domains.users.services import UserService
 from app.middlewares.limiter import limiter
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
@@ -113,6 +115,14 @@ LOGOUT_SUCCESS_RESPONSES = {
     }
 }
 
+REGISTER_ERROR_RESPONSES = {
+    **COMMON_ERROR_RESPONSES,
+    409: {
+        "model": ErrorResponse,
+        "description": "La cédula o el email ya están registrados.",
+    },
+}
+
 COOKIE_OPENAPI = {
     "parameters": [
         {
@@ -153,6 +163,27 @@ def _delete_refresh_cookie(response: Response, settings: Settings) -> None:
         httponly=True,
         samesite="lax",
     )
+
+
+@router.post(
+    "/register",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar cliente",
+    description=(
+        "Registra públicamente un cliente. El backend usa el teléfono como "
+        "contraseña inicial, asigna el rol CLIENTE, establece cero puntos y "
+        "no asocia ninguna sucursal."
+    ),
+    responses=REGISTER_ERROR_RESPONSES,
+)
+@limiter.limit("5/minute")
+async def register(
+    request: Request,
+    data: UserRegistrationData,
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> UserResponse:
+    return await UserService.register(db_session, data)
 
 
 @router.post(

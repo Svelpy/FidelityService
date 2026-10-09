@@ -15,13 +15,16 @@ from app.domains.users.schemas import (
     AdminResetPassword,
     PasswordSelfUpdate,
     UserCreate,
+    UserRegistrationData,
     UserResponse,
     UserSelfUpdate,
     UserUpdate,
 )
+from app.shared.enums import Role
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 from app.shared.schemas.pagination import PaginatedResponse
+from app.shared.services.validators import validator_password
 
 
 logger = get_logger(__name__)
@@ -29,6 +32,43 @@ logger = get_logger(__name__)
 
 class UserService:
     """Consultas y reglas de negocio del dominio de usuarios."""
+
+    _ROLE_LEVEL = {
+        Role.CLIENTE: 1,
+        Role.SOCIO: 2,
+        Role.CAJERO: 3,
+        Role.ADMIN: 4,
+        Role.SUPERADMIN: 5,
+    }
+
+    @classmethod
+    def _validate_can_manage_role(
+        cls,
+        actor_role: Role,
+        target_role: Role,
+    ) -> None:
+        if target_role is Role.SUPERADMIN or (
+            cls._ROLE_LEVEL[target_role] >= cls._ROLE_LEVEL[actor_role]
+        ):
+            raise AppException(
+                "No tienes permisos para administrar usuarios con ese rol.",
+                403,
+                ErrorCode.PERMISSION_DENIED,
+                {"role": "Solo puedes administrar usuarios con un rol inferior."},
+            )
+
+    @staticmethod
+    def _validate_required_sucursal(
+        role: Role,
+        sucursal_id: UUID | None,
+    ) -> None:
+        if role is not Role.CLIENTE and sucursal_id is None:
+            raise AppException(
+                "La sucursal es obligatoria para el rol indicado.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+                {"sucursal_id": "Este rol requiere una sucursal."},
+            )
 
     @staticmethod
     def _integrity_exception(error: IntegrityError) -> AppException:
@@ -47,6 +87,14 @@ class UserService:
                 409,
                 ErrorCode.CONFLICT,
                 {"ci": "La cédula de identidad ya está registrada."},
+            )
+
+        if constraint_name == "uq_usuario_email":
+            return AppException(
+                "El email ya está registrado.",
+                409,
+                ErrorCode.CONFLICT,
+                {"email": "El email ya está registrado."},
             )
 
         return AppException(
@@ -90,6 +138,28 @@ class UserService:
                 409,
                 ErrorCode.CONFLICT,
                 {"ci": "La cédula de identidad ya está registrada."},
+            )
+
+    @staticmethod
+    async def _validate_unique_email(
+        db_session: AsyncSession,
+        email: str | None,
+        exclude_user_id: UUID | None = None,
+    ) -> None:
+        if email is None:
+            return
+
+        statement = select(User.id).where(User.email == email)
+        if exclude_user_id is not None:
+            statement = statement.where(User.id != exclude_user_id)
+
+        result = await db_session.execute(statement)
+        if result.scalar_one_or_none() is not None:
+            raise AppException(
+                "El email ya está registrado.",
+                409,
+                ErrorCode.CONFLICT,
+                {"email": "El email ya está registrado."},
             )
 
     @staticmethod
@@ -190,16 +260,25 @@ class UserService:
         cls,
         db_session: AsyncSession,
         data: UserCreate,
-        actor_id: UUID | None = None,
+        actor_id: UUID,
+        actor_role: Role,
     ) -> User:
+        cls._validate_can_manage_role(actor_role, data.role)
+        cls._validate_required_sucursal(data.role, data.sucursal_id)
         await cls._validate_unique_ci(db_session, data.ci)
+        await cls._validate_unique_email(
+            db_session,
+            str(data.email) if data.email else None,
+        )
         await cls._validate_sucursal(db_session, data.sucursal_id)
 
         now = datetime.now(timezone.utc)
-        password_hash = await asyncio.to_thread(hash_password, data.telefono)
+        initial_password = validator_password(data.telefono)
+        password_hash = await asyncio.to_thread(hash_password, initial_password)
         user = User(
             **data.model_dump(),
             password_hash=password_hash,
+            puntos=0,
             created_at=now,
             created_by=actor_id,
             updated_at=now,
@@ -213,23 +292,82 @@ class UserService:
         return user
 
     @classmethod
+    async def register(
+        cls,
+        db_session: AsyncSession,
+        data: UserRegistrationData,
+    ) -> User:
+        """Registra públicamente un cliente sin aceptar campos internos."""
+        await cls._validate_unique_ci(db_session, data.ci)
+        await cls._validate_unique_email(
+            db_session,
+            str(data.email) if data.email else None,
+        )
+
+        now = datetime.now(timezone.utc)
+        initial_password = validator_password(data.telefono)
+        password_hash = await asyncio.to_thread(hash_password, initial_password)
+        user = User(
+            **data.model_dump(),
+            password_hash=password_hash,
+            role=Role.CLIENTE,
+            puntos=0,
+            sucursal_id=None,
+            created_at=now,
+            updated_at=now,
+            is_deleted=False,
+        )
+        user.created_by = user.id
+        user.updated_by = user.id
+
+        db_session.add(user)
+        await cls._commit(db_session, user)
+
+        logger.info("Cliente registrado: user_id=%s", user.id)
+        return user
+
+    @classmethod
     async def update(
         cls,
         db_session: AsyncSession,
         user_id: UUID,
         data: UserUpdate | UserSelfUpdate,
         actor_id: UUID,
+        actor_role: Role | None = None,
     ) -> User:
         changes = data.model_dump(exclude_unset=True)
         if not changes:
-            return await cls.get(db_session, user_id)
+            user = await cls.get(db_session, user_id)
+            if isinstance(data, UserUpdate):
+                if actor_role is None:
+                    raise RuntimeError("El rol del actor es obligatorio.")
+                cls._validate_can_manage_role(actor_role, user.role)
+            return user
 
         user = await cls.get(db_session, user_id, for_update=True)
+
+        if isinstance(data, UserUpdate):
+            if actor_role is None:
+                raise RuntimeError("El rol del actor es obligatorio.")
+            cls._validate_can_manage_role(actor_role, user.role)
+            resulting_role = changes.get("role", user.role)
+            resulting_sucursal_id = changes.get("sucursal_id", user.sucursal_id)
+            cls._validate_can_manage_role(actor_role, resulting_role)
+            cls._validate_required_sucursal(
+                resulting_role,
+                resulting_sucursal_id,
+            )
 
         if "ci" in changes:
             await cls._validate_unique_ci(
                 db_session,
                 changes["ci"],
+                exclude_user_id=user.id,
+            )
+        if "email" in changes:
+            await cls._validate_unique_email(
+                db_session,
+                str(changes["email"]) if changes["email"] else None,
                 exclude_user_id=user.id,
             )
         if "sucursal_id" in changes:
@@ -251,8 +389,10 @@ class UserService:
         db_session: AsyncSession,
         user_id: UUID,
         actor_id: UUID,
+        actor_role: Role,
     ) -> User:
         user = await cls.get(db_session, user_id, for_update=True)
+        cls._validate_can_manage_role(actor_role, user.role)
         now = datetime.now(timezone.utc)
 
         user.is_deleted = True
@@ -329,8 +469,10 @@ class UserService:
         user_id: UUID,
         data: AdminResetPassword,
         actor_id: UUID,
+        actor_role: Role,
     ) -> User:
         user = await cls.get(db_session, user_id, for_update=True)
+        cls._validate_can_manage_role(actor_role, user.role)
         password_is_unchanged = await asyncio.to_thread(
             verify_password,
             data.new_password,

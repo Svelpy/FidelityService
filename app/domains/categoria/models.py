@@ -12,7 +12,7 @@ class Categoria(BaseModel, table=True):
         {"schema": "public"},
     )
 
-    nombre: str = Field(max_length=120, nullable=False)
-    slug: str = Field(max_length=160, nullable=False)
+    nombre: str = Field(max_length=60, nullable=False)
+    slug: str = Field(max_length=255, nullable=False)
     icon_number: int = Field(nullable=False)
     descripcion: str | None = Field(default=None, sa_type=Text, nullable=True)

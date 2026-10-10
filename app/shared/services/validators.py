@@ -1,6 +1,8 @@
 import re
 from datetime import date, datetime, timezone
 
+from app.shared.services.slug import generate_slug
+
 
 def validator_name(value: object) -> str:
     if not isinstance(value, str):
@@ -65,3 +67,30 @@ def validator_address(value: object) -> str:
     if not normalized_address:
         raise ValueError("La dirección no puede estar vacía.")
     return normalized_address
+
+
+def validator_non_empty_text(value: object) -> str:
+    """Normaliza texto libre y rechaza valores vacíos."""
+    if not isinstance(value, str):
+        raise ValueError("El valor debe ser texto.")
+    normalized_text = value.strip()
+    if not normalized_text:
+        raise ValueError("El texto no puede estar vacío.")
+    return normalized_text
+
+
+def validator_slug_source(value: object) -> str:
+    """Valida texto no vacío capaz de producir un slug."""
+    normalized_text = validator_non_empty_text(value)
+    if not generate_slug(normalized_text):
+        raise ValueError("El texto debe contener al menos una letra o un número válido.")
+    return normalized_text
+
+
+def validator_non_negative_integer(value: object) -> int:
+    """Valida un entero mayor o igual a cero sin aceptar booleanos."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("El valor debe ser un número entero.")
+    if value < 0:
+        raise ValueError("El valor debe ser mayor o igual a cero.")
+    return value

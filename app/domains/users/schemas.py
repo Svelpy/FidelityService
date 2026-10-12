@@ -326,11 +326,11 @@ class UserResponseAudit(UserResponse):
 class AdminResetPassword(BaseModel):
     """Schema para restablecer contraseñas administrativamente."""
 
-    new_password: str = Field(..., min_length=8, max_length=100)
+    new_password: str = Field(..., min_length=6, max_length=20)
 
-    @field_validator("new_password")
+    @field_validator("new_password", mode="before")
     @classmethod
-    def validate_new_password(cls, value: str) -> str:
+    def validate_new_password(cls, value: object) -> str:
         return validator_password(value)
 
     model_config = ConfigDict(
@@ -345,7 +345,7 @@ class AdminResetPassword(BaseModel):
 
 class PasswordSelfUpdate(AdminResetPassword):
     """Schema para cambiar la contraseña del usuario autenticado."""
-    current_password: str = Field(min_length=1, max_length=100)
+    current_password: str = Field(min_length=6, max_length=20)
 
     model_config = ConfigDict(
         extra="forbid",

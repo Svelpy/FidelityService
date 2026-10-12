@@ -1,9 +1,10 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.domains.auth.dependencies import (
     get_current_principal,
@@ -70,6 +71,44 @@ async def change_my_password(
         current_user.id,
         data,
         current_user.id,
+    )
+
+
+@router.post(
+    "/me/avatar",
+    response_model=UserResponse,
+    summary="Subir o reemplazar mi avatar",
+    responses=_error_responses(400, 401, 404, 422, 500),
+)
+async def upload_my_avatar(
+    file: Annotated[UploadFile, File(description="Avatar del usuario")],
+    current_user: Annotated[CurrentUser, Depends(get_current_principal)],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> UserResponse:
+    return await UserService.upload_avatar(
+        db_session,
+        current_user.id,
+        file,
+        actor_id=current_user.id,
+        settings=settings,
+    )
+
+
+@router.delete(
+    "/me/avatar",
+    response_model=UserResponse,
+    summary="Eliminar mi avatar",
+    responses=_error_responses(401, 404, 422, 500),
+)
+async def delete_my_avatar(
+    current_user: Annotated[CurrentUser, Depends(get_current_principal)],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> UserResponse:
+    return await UserService.delete_avatar(
+        db_session,
+        current_user.id,
+        actor_id=current_user.id,
     )
 
 

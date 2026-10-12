@@ -2,7 +2,7 @@ from datetime import date
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Enum as SQLAlchemyEnum
-from sqlalchemy import Index, Text, UniqueConstraint
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field
 
 from app.core.base_model import BaseModel
@@ -33,7 +33,7 @@ class User(BaseModel, table=True):
         nullable=False
         )
     puntos: int = Field(default=0, nullable=False)
-    password_hash: str = Field(max_length=255, nullable=False) # sera su telefono celular
+    password_hash: str = Field(max_length=255, nullable=False)
 
     apellidos: str | None= Field(default=None,max_length=120, nullable=True)
     email: str | None = Field(default=None, max_length=320, nullable=True)

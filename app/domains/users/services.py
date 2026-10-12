@@ -2,10 +2,12 @@ import asyncio
 from datetime import datetime, timezone
 from uuid import UUID
 
+from fastapi import UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.core.logging import get_logger
 from app.core.security import hash_password, verify_password
 from app.domains.auth.services import AuthService
@@ -20,6 +22,7 @@ from app.domains.users.schemas import (
     UserSelfUpdate,
     UserUpdate,
 )
+from app.integrations.cloudinary import CloudinaryService
 from app.shared.enums import Role
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
@@ -32,6 +35,8 @@ logger = get_logger(__name__)
 
 class UserService:
     """Consultas y reglas de negocio del dominio de usuarios."""
+
+    _ROLES_REQUIRING_SUCURSAL = frozenset({Role.CAJERO, Role.SOCIO})
 
     _ROLE_LEVEL = {
         Role.CLIENTE: 1,
@@ -62,7 +67,7 @@ class UserService:
         role: Role,
         sucursal_id: UUID | None,
     ) -> None:
-        if role is not Role.CLIENTE and sucursal_id is None:
+        if role in UserService._ROLES_REQUIRING_SUCURSAL and sucursal_id is None:
             raise AppException(
                 "La sucursal es obligatoria para el rol indicado.",
                 422,
@@ -97,6 +102,18 @@ class UserService:
                 {"email": "El email ya está registrado."},
             )
 
+        if constraint_name == "ck_usuario_socio_sucursal_compatible":
+            return AppException(
+                "Un usuario SOCIO solo puede pertenecer a una sucursal de un negocio SOCIO.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+                {
+                    "sucursal_id": (
+                        "La sucursal debe pertenecer a un negocio de tipo SOCIO."
+                    )
+                },
+            )
+
         return AppException(
             "Los datos del usuario entran en conflicto con un registro existente.",
             409,
@@ -104,11 +121,7 @@ class UserService:
         )
 
     @classmethod
-    async def _commit(
-        cls,
-        db_session: AsyncSession,
-        user: User | None = None,
-    ) -> None:
+    async def _commit_transaction(cls, db_session: AsyncSession) -> None:
         try:
             await db_session.commit()
         except IntegrityError as error:
@@ -118,6 +131,13 @@ class UserService:
             await db_session.rollback()
             raise
 
+    @classmethod
+    async def _commit(
+        cls,
+        db_session: AsyncSession,
+        user: User | None = None,
+    ) -> None:
+        await cls._commit_transaction(db_session)
         if user is not None:
             await db_session.refresh(user)
 
@@ -457,6 +477,70 @@ class UserService:
 
         logger.info(
             "Contraseña cambiada: user_id=%s actor_id=%s",
+            user.id,
+            actor_id,
+        )
+        return user
+
+    @classmethod
+    async def upload_avatar(
+        cls,
+        db_session: AsyncSession,
+        user_id: UUID,
+        file: UploadFile,
+        actor_id: UUID,
+        settings: Settings,
+    ) -> User:
+        user = await cls.get(db_session, user_id, for_update=True)
+        previous_avatar_url = user.avatar_url
+        upload_result = await CloudinaryService.upload_image(
+            file,
+            folder=f"users/{user.id}/avatar",
+            settings=settings,
+        )
+        new_avatar_url = upload_result["url"]
+
+        user.avatar_url = new_avatar_url
+        user.updated_at = datetime.now(timezone.utc)
+        user.updated_by = actor_id
+
+        try:
+            await cls._commit_transaction(db_session)
+        except Exception:
+            await CloudinaryService.safe_delete_image(new_avatar_url)
+            raise
+
+        await db_session.refresh(user)
+        if previous_avatar_url and previous_avatar_url != new_avatar_url:
+            await CloudinaryService.safe_delete_image(previous_avatar_url)
+
+        logger.info(
+            "Avatar actualizado: user_id=%s actor_id=%s",
+            user.id,
+            actor_id,
+        )
+        return user
+
+    @classmethod
+    async def delete_avatar(
+        cls,
+        db_session: AsyncSession,
+        user_id: UUID,
+        actor_id: UUID,
+    ) -> User:
+        user = await cls.get(db_session, user_id, for_update=True)
+        previous_avatar_url = user.avatar_url
+        if previous_avatar_url is None:
+            return user
+
+        user.avatar_url = None
+        user.updated_at = datetime.now(timezone.utc)
+        user.updated_by = actor_id
+        await cls._commit(db_session, user)
+        await CloudinaryService.safe_delete_image(previous_avatar_url)
+
+        logger.info(
+            "Avatar eliminado: user_id=%s actor_id=%s",
             user.id,
             actor_id,
         )

@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import Index, Text, UniqueConstraint
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field
 
 from app.core.base_model import BaseModel
@@ -14,8 +14,8 @@ class Sucursal(BaseModel, table=True):
         {"schema": "public"},
     )
 
-    direccion: str = Field(sa_type=Text, nullable=False)
-    url_ubicacion: str = Field(max_length=2048, nullable=False)
-    telefono: str | None = Field(default=None, max_length=32, nullable=True)
-    nombre: str = Field(max_length=160, nullable=False)
+    direccion: str | None = Field(default=None, max_length=255, nullable=True)
+    url_ubicacion: str | None = Field(default=None, max_length=2048, nullable=True)
+    telefono: str | None = Field(default=None, max_length=20, nullable=True)
+    nombre: str = Field(max_length=60, nullable=False)
     negocio_id: UUID = Field(foreign_key="public.negocio.id", nullable=False)

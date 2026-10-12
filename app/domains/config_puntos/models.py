@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, Numeric
+from sqlalchemy import CheckConstraint, DateTime, Index, Numeric, text
 from sqlmodel import Field
 
 from app.core.base_model import BaseModel
@@ -21,6 +21,12 @@ class ConfigPuntos(BaseModel, table=True):
         CheckConstraint(
             "end_date IS NULL OR end_date > start_date",
             name="ck_config_puntos_rango_fechas",
+        ),
+        Index(
+            "uq_config_puntos_activa",
+            text("(true)"),
+            unique=True,
+            postgresql_where=text("end_date IS NULL AND is_deleted = false"),
         ),
         {"schema": "public"},
     )

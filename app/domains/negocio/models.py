@@ -1,5 +1,5 @@
 from sqlalchemy import Enum as SQLAlchemyEnum
-from sqlalchemy import Index, Text, UniqueConstraint
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field
 
 from app.core.base_model import BaseModel
@@ -15,10 +15,10 @@ class Negocio(BaseModel, table=True):
         {"schema": "public"},
     )
 
-    nombre: str = Field(max_length=160, nullable=False)
-    descripcion: str | None = Field(default=None, sa_type=Text, nullable=True)
-    telefono: str | None = Field(default=None, max_length=32, nullable=True)
-    imagen_url: str | None = Field(default=None, max_length=2048, nullable=True)
+    nombre: str = Field(max_length=60, nullable=False)
+    descripcion: str | None = Field(default=None, max_length=255, nullable=True)
+    telefono: str | None = Field(default=None, max_length=20, nullable=True)
+    image_url: str | None = Field(default=None, max_length=2048, nullable=True)
     tipo: TipoNegocio = Field(
         sa_type=SQLAlchemyEnum(
             TipoNegocio,

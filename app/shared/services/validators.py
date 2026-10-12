@@ -1,5 +1,7 @@
 import re
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
+from urllib.parse import urlparse
 
 from app.shared.services.slug import generate_slug
 
@@ -43,6 +45,8 @@ def validator_password(value: object) -> str:
         raise ValueError("La contraseña debe ser texto.")
     if len(value) < 6:
         raise ValueError("La contraseña debe tener al menos 6 caracteres.")
+    if len(value) > 20:
+        raise ValueError("La contraseña debe tener menos de 20 caracteres.")
     return value
 
 
@@ -79,6 +83,17 @@ def validator_non_empty_text(value: object) -> str:
     return normalized_text
 
 
+def validator_http_url(value: object) -> str:
+    """Normaliza una URL HTTP(S) absoluta."""
+    if not isinstance(value, str):
+        raise ValueError("La URL debe ser texto.")
+    normalized_url = value.strip()
+    parsed_url = urlparse(normalized_url)
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        raise ValueError("La URL debe ser una dirección HTTP o HTTPS válida.")
+    return normalized_url
+
+
 def validator_slug_source(value: object) -> str:
     """Valida texto no vacío capaz de producir un slug."""
     normalized_text = validator_non_empty_text(value)
@@ -94,3 +109,32 @@ def validator_non_negative_integer(value: object) -> int:
     if value < 0:
         raise ValueError("El valor debe ser mayor o igual a cero.")
     return value
+
+
+def validator_positive_integer(value: object) -> int:
+    """Valida un entero positivo sin aceptar booleanos."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("El valor debe ser un número entero.")
+    if value <= 0:
+        raise ValueError("El valor debe ser mayor que cero.")
+    return value
+
+
+def validator_positive_money(value: object) -> Decimal:
+    """Convierte un importe finito y positivo a Decimal."""
+    if isinstance(value, bool) or not isinstance(
+        value,
+        (Decimal, int, float, str),
+    ):
+        raise ValueError("El importe debe ser un número válido.")
+    if isinstance(value, str) and not value.strip():
+        raise ValueError("El importe no puede estar vacío.")
+    try:
+        amount = Decimal(str(value).strip())
+    except InvalidOperation as error:
+        raise ValueError("El importe debe ser un número válido.") from error
+    if not amount.is_finite():
+        raise ValueError("El importe debe ser finito.")
+    if amount <= 0:
+        raise ValueError("El importe debe ser mayor que cero.")
+    return amount

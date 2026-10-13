@@ -13,7 +13,11 @@ from app.domains.auth.dependencies import get_current_principal
 from app.domains.auth.schemas import CurrentUser
 from app.domains.users.models import User
 from app.domains.users.routes import router
-from app.domains.users.schemas import UserResponse
+from app.domains.users.schemas import (
+    UserDetailResponseAudit,
+    UserMeResponse,
+    UserResponse,
+)
 from app.domains.users.services import UserService
 from app.shared.enums import Genero, Role
 from app.shared.schemas.pagination import PaginatedResponse
@@ -62,16 +66,24 @@ def route_context() -> tuple[TestClient, CurrentUser, MagicMock, MagicMock]:
         yield client, current_user, db_session, settings
 
 
-def test_get_me_reutiliza_get(
+def test_get_me_delega_consulta_compuesta(
     route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
 ) -> None:
     client, current_user, db_session, _ = route_context
     user = _user(id=current_user.id)
+    result = UserMeResponse(user=user, sucursal=None, negocio=None)
 
-    with patch.object(UserService, "get", new=AsyncMock(return_value=user)) as service:
+    with patch.object(
+        UserService,
+        "get_me",
+        new=AsyncMock(return_value=result),
+    ) as service:
         response = client.get("/users/me")
 
     assert response.status_code == 200
+    assert response.json()["user"]["id"] == str(user.id)
+    assert response.json()["sucursal"] is None
+    assert response.json()["negocio"] is None
     service.assert_awaited_once_with(db_session, current_user.id)
 
 
@@ -157,10 +169,19 @@ def test_list_users_devuelve_paginacion(
         "list",
         new=AsyncMock(return_value=page),
     ) as service:
-        response = client.get("/users/?page=1&per_page=10")
+        sucursal_id = uuid4()
+        response = client.get(
+            f"/users/?page=1&per_page=10&sucursal_id={sucursal_id}&role=CAJERO"
+        )
 
     assert response.status_code == 200
-    service.assert_awaited_once_with(db_session, page=1, per_page=10)
+    service.assert_awaited_once_with(
+        db_session,
+        page=1,
+        per_page=10,
+        sucursal_id=sucursal_id,
+        role=Role.CAJERO,
+    )
 
 
 def test_create_admin_sin_sucursal_devuelve_201(
@@ -200,9 +221,19 @@ def test_get_update_delete_usuario_delegan_servicio(
     client, current_user, db_session, _ = route_context
     user = _user()
 
-    with patch.object(UserService, "get", new=AsyncMock(return_value=user)) as get:
-        assert client.get(f"/users/{user.id}").status_code == 200
-        get.assert_awaited_once_with(db_session, user.id)
+    detail = UserDetailResponseAudit(user=user, sucursal=None, negocio=None)
+    with patch.object(
+        UserService,
+        "get_detail",
+        new=AsyncMock(return_value=detail),
+    ) as get_detail:
+        response = client.get(f"/users/{user.id}")
+
+    assert response.status_code == 200
+    assert response.json()["user"]["id"] == str(user.id)
+    assert response.json()["sucursal"] is None
+    assert response.json()["negocio"] is None
+    get_detail.assert_awaited_once_with(db_session, user.id)
 
     with patch.object(
         UserService,
@@ -227,9 +258,40 @@ def test_get_update_delete_usuario_delegan_servicio(
         )
 
 
+def test_get_user_by_ci_delega_consulta_administrativa(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+) -> None:
+    client, _, db_session, _ = route_context
+    user = _user()
+
+    with patch.object(
+        UserService,
+        "get_by_ci",
+        new=AsyncMock(return_value=user),
+    ) as service:
+        response = client.get(f"/users/ci/{user.ci}")
+
+    assert response.status_code == 200
+    assert response.json()["ci"] == user.ci
+    assert "user" not in response.json()
+    assert "sucursal" not in response.json()
+    assert "negocio" not in response.json()
+    service.assert_awaited_once_with(db_session, user.ci)
+
+
+def test_get_user_by_ci_valida_formato(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+) -> None:
+    client, _, _, _ = route_context
+
+    assert client.get("/users/ci/ABC").status_code == 422
+
+
 def test_list_users_valida_paginacion(
     route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
 ) -> None:
     client, _, _, _ = route_context
 
     assert client.get("/users/?page=0").status_code == 422
+    assert client.get("/users/?role=INVALIDO").status_code == 422
+    assert client.get("/users/?sucursal_id=invalido").status_code == 422

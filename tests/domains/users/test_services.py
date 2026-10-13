@@ -7,6 +7,8 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import Settings
 from app.domains.auth.services import AuthService
+from app.domains.negocio.models import Negocio
+from app.domains.sucursal.models import Sucursal
 from app.domains.users.models import User
 from app.domains.users.schemas import (
     AdminResetPassword,
@@ -18,7 +20,7 @@ from app.domains.users.schemas import (
 )
 from app.domains.users.services import UserService
 from app.integrations.cloudinary import CloudinaryService
-from app.shared.enums import Genero, Role
+from app.shared.enums import Genero, Role, TipoNegocio
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 
@@ -101,8 +103,99 @@ async def test_get_rechaza_usuario_inexistente() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_me_devuelve_usuario_sucursal_y_negocio_en_una_consulta() -> None:
+    negocio = Negocio(nombre="Cafe Central", tipo=TipoNegocio.SOCIO)
+    sucursal = Sucursal(
+        nombre="Sucursal Centro",
+        negocio_id=negocio.id,
+    )
+    user = _user(sucursal_id=sucursal.id)
+    result = MagicMock()
+    result.one_or_none.return_value = (user, sucursal, negocio)
+    session = _session()
+    session.execute.return_value = result
+
+    response = await UserService.get_me(session, user.id)
+
+    assert response.user.id == user.id
+    assert response.sucursal is not None
+    assert response.sucursal.id == sucursal.id
+    assert response.negocio is not None
+    assert response.negocio.id == negocio.id
+    session.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_me_admite_usuario_sin_sucursal() -> None:
+    user = _user(sucursal_id=None)
+    result = MagicMock()
+    result.one_or_none.return_value = (user, None, None)
+    session = _session()
+    session.execute.return_value = result
+
+    response = await UserService.get_me(session, user.id)
+
+    assert response.user.id == user.id
+    assert response.sucursal is None
+    assert response.negocio is None
+
+
+@pytest.mark.asyncio
+async def test_get_detail_devuelve_respuestas_con_auditoria() -> None:
+    negocio = Negocio(nombre="Cafe Central", tipo=TipoNegocio.SOCIO)
+    sucursal = Sucursal(
+        nombre="Sucursal Centro",
+        negocio_id=negocio.id,
+    )
+    user = _user(sucursal_id=sucursal.id)
+    result = MagicMock()
+    result.one_or_none.return_value = (user, sucursal, negocio)
+    session = _session()
+    session.execute.return_value = result
+
+    response = await UserService.get_detail(session, user.id)
+
+    assert response.user.created_at == user.created_at
+    assert response.sucursal is not None
+    assert response.sucursal.created_at == sucursal.created_at
+    assert response.negocio is not None
+    assert response.negocio.created_at == negocio.created_at
+    session.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_by_ci_devuelve_solo_usuario() -> None:
+    user = _user(ci="12345678")
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = user
+    session = _session()
+    session.execute.return_value = result
+
+    response = await UserService.get_by_ci(session, user.ci)
+
+    assert response.id == user.id
+    statement = session.execute.await_args.args[0]
+    assert user.ci in statement.compile().params.values()
+
+
+@pytest.mark.asyncio
+async def test_get_me_rechaza_usuario_inexistente() -> None:
+    result = MagicMock()
+    result.one_or_none.return_value = None
+    session = _session()
+    session.execute.return_value = result
+
+    with pytest.raises(AppException) as error:
+        await UserService.get_me(session, uuid4())
+
+    assert error.value.status_code == 404
+    assert error.value.code == ErrorCode.RESOURCE_NOT_FOUND
+
+
+@pytest.mark.asyncio
 async def test_list_devuelve_paginacion() -> None:
-    user = _user()
+    sucursal_id = uuid4()
+    user = _user(role=Role.CAJERO, sucursal_id=sucursal_id)
     count_result = MagicMock()
     count_result.scalar_one.return_value = 1
     rows_result = MagicMock()
@@ -110,11 +203,23 @@ async def test_list_devuelve_paginacion() -> None:
     session = _session()
     session.execute.side_effect = [count_result, rows_result]
 
-    page = await UserService.list(session, page=1, per_page=10)
+    page = await UserService.list(
+        session,
+        page=1,
+        per_page=10,
+        sucursal_id=sucursal_id,
+        role=Role.CAJERO,
+    )
 
     assert page.total == 1
     assert page.total_pages == 1
     assert page.data[0].id == user.id
+    count_statement = session.execute.await_args_list[0].args[0]
+    rows_statement = session.execute.await_args_list[1].args[0]
+    for statement in (count_statement, rows_statement):
+        parameters = statement.compile().params.values()
+        assert sucursal_id in parameters
+        assert Role.CAJERO in parameters
 
 
 @pytest.mark.asyncio
@@ -205,6 +310,30 @@ async def test_register_crea_cliente_sin_sucursal() -> None:
     assert user.sucursal_id is None
     assert user.created_by == user.id
     assert user.updated_by == user.id
+
+
+@pytest.mark.asyncio
+async def test_register_sin_commit_permite_transaccion_externa() -> None:
+    session = _session()
+    data = UserRegistrationData(
+        ci="87654321",
+        telefono="72123456",
+        nombre="Luis",
+        genero=Genero.M,
+    )
+
+    with (
+        patch.object(UserService, "_validate_unique_ci", new=AsyncMock()),
+        patch.object(UserService, "_validate_unique_email", new=AsyncMock()),
+        patch("app.domains.users.services.hash_password", return_value="secure-hash"),
+    ):
+        user = await UserService.register(session, data, commit=False)
+
+    session.add.assert_called_once_with(user)
+    assert user.role is Role.CLIENTE
+    assert user.sucursal_id is None
+    session.commit.assert_not_awaited()
+    session.refresh.assert_not_awaited()
 
 
 @pytest.mark.asyncio

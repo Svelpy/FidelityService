@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.domains.negocio.schemas import NegocioResponse, NegocioResponseAudit
+from app.domains.sucursal.schemas import SucursalResponse, SucursalResponseAudit
 from app.shared.enums import Genero, Role
 from app.shared.services.validators import (
     validator_address,
@@ -127,7 +129,7 @@ class UserCreate(UserRegistrationData):
                 "birth_date": "1995-04-18",
                 "direccion": "Avenida Principal 123",
                 "role": "CLIENTE",
-                "sucursal_id": None,
+                "sucursal_id": "22222222-2222-4222-8222-222222222222",
             }
         },
     )
@@ -200,7 +202,7 @@ class UserSelfUpdate(BaseModel):
                 "nombre": "Ana María",
                 "telefono": "71234567",
                 "genero": "F",
-                "apellidos": None,
+                "apellidos": "Perez Lopez",
                 "email": "ana@example.com",
                 "birth_date": "1995-04-18",
                 "direccion": "Avenida Principal 123",
@@ -235,13 +237,13 @@ class UserUpdate(UserSelfUpdate):
                 "nombre": "Ana María",
                 "telefono": "71234567",
                 "genero": "F",
-                "apellidos": None,
+                "apellidos": "Perez Lopez",
                 "email": "ana@example.com",
                 "birth_date": "1995-04-18",
                 "direccion": "Avenida Principal 123",
                 "ci": "12345678",
                 "role": "CLIENTE",
-                "sucursal_id": None,
+                "sucursal_id": "22222222-2222-4222-8222-222222222222",
             }
         },
     )
@@ -279,7 +281,26 @@ class UserResponse(BaseModel):
                 "genero": "F",
                 "role": "CLIENTE",
                 "puntos": 150,
-                "sucursal_id": None,
+                "sucursal_id": "22222222-2222-4222-8222-222222222222",
+            }
+        },
+    )
+
+
+class UserMeResponse(BaseModel):
+    """Respuesta del usuario autenticado con su sucursal y negocio."""
+
+    user: UserResponse
+    sucursal: SucursalResponse | None
+    negocio: NegocioResponse | None
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "user": UserResponse.model_json_schema()["example"],
+                "sucursal": SucursalResponse.model_json_schema()["example"],
+                "negocio": NegocioResponse.model_json_schema()["example"],
             }
         },
     )
@@ -311,14 +332,33 @@ class UserResponseAudit(UserResponse):
                 "genero": "F",
                 "role": "CLIENTE",
                 "puntos": 150,
-                "sucursal_id": None,
+                "sucursal_id": "22222222-2222-4222-8222-222222222222",
                 "created_at": "2026-10-08T14:30:00Z",
                 "created_by": "22222222-2222-4222-8222-222222222222",
                 "updated_at": "2026-10-08T15:00:00Z",
                 "updated_by": "22222222-2222-4222-8222-222222222222",
-                "is_deleted": False,
-                "deleted_at": None,
-                "deleted_by": None,
+                "is_deleted": True,
+                "deleted_at": "2026-10-08T16:00:00Z",
+                "deleted_by": "22222222-2222-4222-8222-222222222222",
+            }
+        },
+    )
+
+
+class UserDetailResponseAudit(BaseModel):
+    """Respuesta administrativa con auditoria del usuario y sus relaciones."""
+
+    user: UserResponseAudit
+    sucursal: SucursalResponseAudit | None
+    negocio: NegocioResponseAudit | None
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "user": UserResponseAudit.model_json_schema()["example"],
+                "sucursal": SucursalResponseAudit.model_json_schema()["example"],
+                "negocio": NegocioResponseAudit.model_json_schema()["example"],
             }
         },
     )

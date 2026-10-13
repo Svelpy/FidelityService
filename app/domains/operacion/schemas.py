@@ -1,9 +1,11 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.domains.users.schemas import UserRegistrationData
 from app.shared.services.validators import (
     validator_non_empty_text,
     validator_positive_money,
@@ -11,9 +13,18 @@ from app.shared.services.validators import (
 
 
 class OperacionCreate(BaseModel):
-    receptor_id: UUID
+    receptor_id: UUID | None = Field(default=None)
+    receptor_data: UserRegistrationData | None = Field(default=None)
     total_compra: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
     referencia: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @model_validator(mode="after")
+    def validate_receptor(self) -> Self:
+        if self.receptor_id is None and self.receptor_data is None:
+            raise ValueError(
+                "Debe proporcionar receptor_id o receptor_data."
+            )
+        return self
 
     @field_validator("total_compra", mode="before")
     @classmethod
@@ -32,6 +43,7 @@ class OperacionCreate(BaseModel):
         json_schema_extra={
             "example": {
                 "receptor_id": "11111111-1111-4111-8111-111111111111",
+                "receptor_data": UserRegistrationData.model_json_schema()["example"],
                 "total_compra": "150.00",
                 "referencia": "Factura 000123",
             }

@@ -13,8 +13,10 @@ from app.domains.auth.dependencies import get_current_principal
 from app.domains.auth.schemas import CurrentUser
 from app.domains.operacion.models import Operacion
 from app.domains.operacion.routes import router
+from app.domains.operacion.schemas import OperacionResponse
 from app.domains.operacion.services import OperacionService
 from app.shared.enums import Role
+from app.shared.schemas.pagination import PaginatedResponse
 
 
 def _operation() -> Operacion:
@@ -65,6 +67,12 @@ def test_create_delega_contexto_del_emisor(
             "/operaciones/",
             json={
                 "receptor_id": str(operation.receptor_id),
+                "receptor_data": {
+                    "ci": "12345678",
+                    "telefono": "71234567",
+                    "nombre": "Ana",
+                    "genero": "F",
+                },
                 "total_compra": "100.00",
             },
         )
@@ -94,3 +102,55 @@ def test_get_delega_alcance_del_principal(
         principal.id,
         principal.role,
     )
+
+
+def test_list_delega_filtros_opcionales(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, principal, session = route_context
+    operation = _operation()
+    page = PaginatedResponse[OperacionResponse](
+        total=1,
+        page=1,
+        per_page=10,
+        total_pages=1,
+        data=[operation],
+    )
+
+    with patch.object(
+        OperacionService,
+        "list",
+        new=AsyncMock(return_value=page),
+    ) as service:
+        response = client.get(
+            "/operaciones/",
+            params={
+                "page": 1,
+                "per_page": 10,
+                "emisor_id": str(operation.emisor_id),
+                "receptor_id": str(operation.receptor_id),
+                "sucursal_id": str(operation.sucursal_id),
+            },
+        )
+
+    assert response.status_code == 200
+    service.assert_awaited_once_with(
+        session,
+        principal.id,
+        principal.role,
+        page=1,
+        per_page=10,
+        emisor_id=operation.emisor_id,
+        receptor_id=operation.receptor_id,
+        sucursal_id=operation.sucursal_id,
+    )
+
+
+def test_list_valida_ids_de_filtro(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, _, _ = route_context
+
+    assert client.get("/operaciones/?emisor_id=invalido").status_code == 422
+    assert client.get("/operaciones/?receptor_id=invalido").status_code == 422
+    assert client.get("/operaciones/?sucursal_id=invalido").status_code == 422

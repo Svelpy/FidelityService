@@ -48,6 +48,9 @@ async def list_operaciones(
     db_session: Annotated[AsyncSession, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
+    emisor_id: Annotated[UUID | None, Query()] = None,
+    receptor_id: Annotated[UUID | None, Query()] = None,
+    sucursal_id: Annotated[UUID | None, Query()] = None,
 ) -> PaginatedResponse[OperacionResponse]:
     return await OperacionService.list(
         db_session,
@@ -55,6 +58,9 @@ async def list_operaciones(
         current_user.role,
         page=page,
         per_page=per_page,
+        emisor_id=emisor_id,
+        receptor_id=receptor_id,
+        sucursal_id=sucursal_id,
     )
 
 

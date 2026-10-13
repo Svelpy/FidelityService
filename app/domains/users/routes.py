@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Path, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -15,13 +15,15 @@ from app.domains.users.schemas import (
     AdminResetPassword,
     PasswordSelfUpdate,
     UserCreate,
+    UserDetailResponseAudit,
+    UserMeResponse,
     UserResponse,
     UserResponseAudit,
     UserSelfUpdate,
     UserUpdate,
 )
 from app.domains.users.services import UserService
-from app.shared.enums import Action, Module
+from app.shared.enums import Action, Module, Role
 from app.shared.schemas.errors import ErrorResponse
 from app.shared.schemas.pagination import PaginatedResponse
 
@@ -44,15 +46,15 @@ def _error_responses(*status_codes: int) -> dict[int, dict[str, object]]:
 
 @router.get(
     "/me",
-    response_model=UserResponse,
+    response_model=UserMeResponse,
     summary="Consultar mi usuario",
     responses=_error_responses(401, 404, 500),
 )
 async def get_me(
     current_user: Annotated[CurrentUser, Depends(get_current_principal)],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> UserResponse:
-    return await UserService.get(db_session, current_user.id)
+) -> UserMeResponse:
+    return await UserService.get_me(db_session, current_user.id)
 
 
 @router.patch(
@@ -142,11 +144,15 @@ async def list_users(
     db_session: Annotated[AsyncSession, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
+    sucursal_id: Annotated[UUID | None, Query()] = None,
+    role: Annotated[Role | None, Query()] = None,
 ) -> PaginatedResponse[UserResponse]:
     return await UserService.list(
         db_session,
         page=page,
         per_page=per_page,
+        sucursal_id=sucursal_id,
+        role=role,
     )
 
 
@@ -192,8 +198,22 @@ async def reset_user_password(
 
 
 @router.get(
+    "/ci/{ci}",
+    response_model=UserResponse,
+    summary="Consultar usuario por cedula de identidad",
+    responses=_error_responses(401, 403, 404, 422, 500),
+)
+async def get_user_by_ci(
+    ci: Annotated[str, Path(pattern=r"^\d{6,20}$")],
+    current_user: Annotated[CurrentUser, Depends(require_permission(Module.USUARIO, Action.READ))],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> UserResponseAudit:
+    return await UserService.get_by_ci(db_session, ci)
+
+
+@router.get(
     "/{user_id}",
-    response_model=UserResponseAudit,
+    response_model=UserDetailResponseAudit,
     summary="Consultar usuario",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -201,8 +221,8 @@ async def get_user(
     user_id: UUID,
     current_user: Annotated[CurrentUser, Depends(require_permission(Module.USUARIO, Action.READ))],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> UserResponseAudit:
-    return await UserService.get(db_session, user_id)
+) -> UserDetailResponseAudit:
+    return await UserService.get_detail(db_session, user_id)
 
 
 @router.patch(

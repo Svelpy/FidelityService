@@ -12,8 +12,10 @@ from app.domains.operacion.schemas import OperacionCreate
 from app.domains.operacion.services import OperacionService
 from app.domains.sucursal.services import SucursalService
 from app.domains.users.models import User
+from app.domains.users.schemas import UserRegistrationData
 from app.domains.users.services import UserService
 from app.shared.enums import Genero, Role, TipoMovimiento
+from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 
 
@@ -35,6 +37,15 @@ def _client(*, points: int = 20) -> User:
         genero=Genero.O,
         puntos=points,
         password_hash="hash",
+    )
+
+
+def _receptor_data() -> UserRegistrationData:
+    return UserRegistrationData(
+        ci="12345678",
+        telefono="71234567",
+        nombre="Cliente",
+        genero=Genero.O,
     )
 
 
@@ -73,6 +84,7 @@ async def test_create_registra_operacion_saldo_y_movimiento_atomicamente() -> No
             "get",
             new=AsyncMock(return_value=client),
         ) as get_user,
+        patch.object(UserService, "register", new=AsyncMock()) as register_user,
         patch.object(
             ConfigPuntosService,
             "get_active",
@@ -83,6 +95,7 @@ async def test_create_registra_operacion_saldo_y_movimiento_atomicamente() -> No
             session,
             OperacionCreate(
                 receptor_id=client.id,
+                receptor_data=_receptor_data(),
                 total_compra=Decimal("150.00"),
                 referencia="Factura 123",
             ),
@@ -101,8 +114,99 @@ async def test_create_registra_operacion_saldo_y_movimiento_atomicamente() -> No
     assert movement.operacion_id == operation.id
     get_branch.assert_awaited_once_with(session, branch_id)
     get_user.assert_awaited_once_with(session, client.id, for_update=True)
+    register_user.assert_not_awaited()
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(operation)
+
+
+@pytest.mark.asyncio
+async def test_create_rechaza_receptor_id_inexistente_sin_registrarlo() -> None:
+    session = _session()
+    actor_id = uuid4()
+    branch_id = uuid4()
+    requested_recipient_id = uuid4()
+    registration_data = _receptor_data()
+    not_found = AppException(
+        "Usuario no encontrado.",
+        404,
+        ErrorCode.RESOURCE_NOT_FOUND,
+    )
+
+    with (
+        patch.object(SucursalService, "get", new=AsyncMock()),
+        patch.object(UserService, "get", new=AsyncMock(side_effect=not_found)) as get_user,
+        patch.object(UserService, "register", new=AsyncMock()) as register_user,
+    ):
+        with pytest.raises(AppException) as error:
+            await OperacionService.create(
+                session,
+                OperacionCreate(
+                    receptor_id=requested_recipient_id,
+                    receptor_data=registration_data,
+                    total_compra="100.00",
+                ),
+                actor_id,
+                branch_id,
+            )
+
+    get_user.assert_awaited_once_with(
+        session,
+        requested_recipient_id,
+        for_update=True,
+    )
+    assert error.value.status_code == 404
+    register_user.assert_not_awaited()
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_registra_receptor_cuando_id_es_nulo() -> None:
+    session = _session()
+    actor_id = uuid4()
+    branch_id = uuid4()
+    new_client = _client(points=0)
+    registration_data = _receptor_data()
+    config = ConfigPuntos(
+        factor_asignacion_puntos=Decimal("0.100000"),
+        factor_costo_vale=Decimal("10.000000"),
+    )
+
+    with (
+        patch.object(SucursalService, "get", new=AsyncMock()),
+        patch.object(UserService, "get", new=AsyncMock()) as get_user,
+        patch.object(
+            UserService,
+            "register",
+            new=AsyncMock(return_value=new_client),
+        ) as register_user,
+        patch.object(
+            ConfigPuntosService,
+            "get_active",
+            new=AsyncMock(return_value=config),
+        ),
+    ):
+        operation = await OperacionService.create(
+            session,
+            OperacionCreate(
+                receptor_id=None,
+                receptor_data=registration_data,
+                total_compra="100.00",
+            ),
+            actor_id,
+            branch_id,
+        )
+
+    get_user.assert_not_awaited()
+    register_user.assert_awaited_once_with(
+        session,
+        registration_data,
+        commit=False,
+    )
+    assert operation.receptor_id == new_client.id
+    assert new_client.role is Role.CLIENTE
+    assert new_client.sucursal_id is None
+    assert new_client.puntos == 10
+    session.commit.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -112,7 +216,11 @@ async def test_create_requiere_sucursal_del_emisor() -> None:
     with pytest.raises(AppException) as error:
         await OperacionService.create(
             session,
-            OperacionCreate(receptor_id=uuid4(), total_compra="100.00"),
+            OperacionCreate(
+                receptor_id=uuid4(),
+                receptor_data=_receptor_data(),
+                total_compra="100.00",
+            ),
             uuid4(),
             None,
         )
@@ -134,7 +242,11 @@ async def test_create_requiere_receptor_cliente() -> None:
         with pytest.raises(AppException) as error:
             await OperacionService.create(
                 session,
-                OperacionCreate(receptor_id=recipient.id, total_compra="100.00"),
+                OperacionCreate(
+                    receptor_id=recipient.id,
+                    receptor_data=_receptor_data(),
+                    total_compra="100.00",
+                ),
                 uuid4(),
                 uuid4(),
             )
@@ -181,11 +293,21 @@ async def test_list_devuelve_operaciones_visibles_paginadas() -> None:
     page = await OperacionService.list(
         session,
         operation.receptor_id,
-        Role.CLIENTE,
+        Role.ADMIN,
         page=1,
         per_page=10,
+        emisor_id=operation.emisor_id,
+        receptor_id=operation.receptor_id,
+        sucursal_id=operation.sucursal_id,
     )
 
     assert page.total == 1
     assert len(page.data) == 1
     assert page.data[0].id == operation.id
+    count_statement = session.execute.await_args_list[0].args[0]
+    rows_statement = session.execute.await_args_list[1].args[0]
+    for statement in (count_statement, rows_statement):
+        parameters = statement.compile().params.values()
+        assert operation.emisor_id in parameters
+        assert operation.receptor_id in parameters
+        assert operation.sucursal_id in parameters

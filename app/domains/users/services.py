@@ -3,20 +3,24 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.config import Settings
 from app.core.logging import get_logger
 from app.core.security import hash_password, verify_password
 from app.domains.auth.services import AuthService
+from app.domains.negocio.models import Negocio
 from app.domains.sucursal.models import Sucursal
 from app.domains.users.models import User
 from app.domains.users.schemas import (
     AdminResetPassword,
     PasswordSelfUpdate,
     UserCreate,
+    UserDetailResponseAudit,
+    UserMeResponse,
     UserRegistrationData,
     UserResponse,
     UserSelfUpdate,
@@ -229,12 +233,104 @@ class UserService:
         return user
 
     @staticmethod
+    async def _get_context(
+        db_session: AsyncSession,
+        user_filter: ColumnElement[bool],
+    ) -> tuple[User, Sucursal | None, Negocio | None]:
+        statement = (
+            select(User, Sucursal, Negocio)
+            .outerjoin(
+                Sucursal,
+                and_(
+                    Sucursal.id == User.sucursal_id,
+                    Sucursal.is_deleted.is_(False),
+                ),
+            )
+            .outerjoin(
+                Negocio,
+                and_(
+                    Negocio.id == Sucursal.negocio_id,
+                    Negocio.is_deleted.is_(False),
+                ),
+            )
+            .where(
+                user_filter,
+                User.is_deleted.is_(False),
+            )
+        )
+
+        result = await db_session.execute(statement)
+        row = result.one_or_none()
+        if row is None:
+            raise AppException(
+                "Usuario no encontrado.",
+                404,
+                ErrorCode.RESOURCE_NOT_FOUND,
+            )
+
+        return row[0], row[1], row[2]
+
+    @classmethod
+    async def get_me(
+        cls,
+        db_session: AsyncSession,
+        user_id: UUID,
+    ) -> UserMeResponse:
+        user, sucursal, negocio = await cls._get_context(
+            db_session,
+            User.id == user_id,
+        )
+        return UserMeResponse(
+            user=user,
+            sucursal=sucursal,
+            negocio=negocio,
+        )
+
+    @classmethod
+    async def get_detail(
+        cls,
+        db_session: AsyncSession,
+        user_id: UUID,
+    ) -> UserDetailResponseAudit:
+        user, sucursal, negocio = await cls._get_context(
+            db_session,
+            User.id == user_id,
+        )
+        return UserDetailResponseAudit(
+            user=user,
+            sucursal=sucursal,
+            negocio=negocio,
+        )
+
+    @staticmethod
+    async def get_by_ci(
+        db_session: AsyncSession,
+        ci: str,
+    ) -> User:
+        result = await db_session.execute(
+            select(User).where(
+                User.ci == ci,
+                User.is_deleted.is_(False),
+            )
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise AppException(
+                "Usuario no encontrado.",
+                404,
+                ErrorCode.RESOURCE_NOT_FOUND,
+            )
+        return user
+
+    @staticmethod
     async def list(
         db_session: AsyncSession,
         *,
         page: int = 1,
         per_page: int = 20,
         include_deleted: bool = False,
+        sucursal_id: UUID | None = None,
+        role: Role | None = None,
     ) -> PaginatedResponse[UserResponse]:
         if page < 1:
             raise AppException(
@@ -252,6 +348,10 @@ class UserService:
         filters = []
         if not include_deleted:
             filters.append(User.is_deleted.is_(False))
+        if sucursal_id is not None:
+            filters.append(User.sucursal_id == sucursal_id)
+        if role is not None:
+            filters.append(User.role == role)
 
         total_result = await db_session.execute(
             select(func.count()).select_from(User).where(*filters)
@@ -316,6 +416,8 @@ class UserService:
         cls,
         db_session: AsyncSession,
         data: UserRegistrationData,
+        *,
+        commit: bool = True,
     ) -> User:
         """Registra públicamente un cliente sin aceptar campos internos."""
         await cls._validate_unique_ci(db_session, data.ci)
@@ -341,7 +443,8 @@ class UserService:
         user.updated_by = user.id
 
         db_session.add(user)
-        await cls._commit(db_session, user)
+        if commit:
+            await cls._commit(db_session, user)
 
         logger.info("Cliente registrado: user_id=%s", user.id)
         return user

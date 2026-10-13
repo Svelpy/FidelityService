@@ -127,6 +127,9 @@ class OperacionService:
         *,
         page: int = 1,
         per_page: int = 20,
+        emisor_id: UUID | None = None,
+        receptor_id: UUID | None = None,
+        sucursal_id: UUID | None = None,
     ) -> PaginatedResponse[OperacionResponse]:
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
@@ -138,6 +141,12 @@ class OperacionService:
             Operacion.is_deleted.is_(False),
             *cls._visibility_filters(actor_id, actor_role),
         ]
+        if emisor_id is not None:
+            filters.append(Operacion.emisor_id == emisor_id)
+        if receptor_id is not None:
+            filters.append(Operacion.receptor_id == receptor_id)
+        if sucursal_id is not None:
+            filters.append(Operacion.sucursal_id == sucursal_id)
         total_result = await db_session.execute(
             select(func.count()).select_from(Operacion).where(*filters)
         )
@@ -167,33 +176,26 @@ class OperacionService:
         sucursal_id: UUID | None,
     ) -> Operacion:
         if sucursal_id is None:
-            raise AppException(
-                "El emisor debe pertenecer a una sucursal.",
-                422,
-                ErrorCode.VALIDATION_ERROR,
-                {"sucursal_id": "Se requiere una sucursal para registrar compras."},
-            )
-        if data.receptor_id == actor_id:
-            raise AppException(
-                "El emisor y el receptor deben ser usuarios diferentes.",
-                422,
-                ErrorCode.VALIDATION_ERROR,
-                {"receptor_id": "No puedes asignarte puntos a ti mismo."},
-            )
+            raise AppException("El emisor debe pertenecer a una sucursal.", 422, ErrorCode.VALIDATION_ERROR)
+        if data.receptor_id is not None and data.receptor_id == actor_id:
+            raise AppException("El emisor y el receptor deben ser usuarios diferentes.", 422, ErrorCode.VALIDATION_ERROR)
 
         await SucursalService.get(db_session, sucursal_id)
-        recipient = await UserService.get(
-            db_session,
-            data.receptor_id,
-            for_update=True,
-        )
-        if recipient.role is not Role.CLIENTE:
-            raise AppException(
-                "Los puntos solo pueden asignarse a un cliente.",
-                422,
-                ErrorCode.VALIDATION_ERROR,
-                {"receptor_id": "El usuario receptor debe tener el rol CLIENTE."},
+        if data.receptor_id is not None:
+            recipient = await UserService.get(
+                db_session,
+                data.receptor_id,
+                for_update=True,
             )
+        else:
+            assert data.receptor_data is not None
+            recipient = await UserService.register(
+                db_session,
+                data.receptor_data,
+                commit=False,
+            )
+        if recipient.role is not Role.CLIENTE:
+            raise AppException("Los puntos solo pueden asignarse a un cliente.", 422, ErrorCode.VALIDATION_ERROR)
 
         config = await ConfigPuntosService.get_active(db_session)
         assert config is not None

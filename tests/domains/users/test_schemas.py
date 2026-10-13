@@ -1,11 +1,15 @@
 from uuid import uuid4
 
 import pytest
-from pydantic import ValidationError
+from fastapi.encoders import jsonable_encoder
+from pydantic import BaseModel, ValidationError
 
 from app.domains.users.schemas import (
     AdminResetPassword,
+    PasswordSelfUpdate,
     UserCreate,
+    UserDetailResponseAudit,
+    UserMeResponse,
     UserRegistrationData,
     UserResponse,
     UserResponseAudit,
@@ -96,7 +100,33 @@ def test_user_responses_incluyen_json_schema() -> None:
 
     assert response_example["avatar_url"].startswith("https://")
     assert audit_example["created_by"] == "22222222-2222-4222-8222-222222222222"
-    assert audit_example["is_deleted"] is False
+    assert audit_example["is_deleted"] is True
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        UserRegistrationData,
+        UserCreate,
+        UserSelfUpdate,
+        UserUpdate,
+        UserResponse,
+        UserMeResponse,
+        UserResponseAudit,
+        UserDetailResponseAudit,
+        AdminResetPassword,
+        PasswordSelfUpdate,
+    ],
+)
+def test_examples_openapi_incluyen_todos_los_campos(
+    schema: type[BaseModel],
+) -> None:
+    example = jsonable_encoder(
+        schema.model_json_schema()["example"],
+        exclude_none=True,
+    )
+
+    assert set(example) == set(schema.model_fields)
 
 
 def test_registration_rechaza_campos_internos() -> None:

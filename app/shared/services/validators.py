@@ -73,14 +73,31 @@ def validator_address(value: object) -> str:
     return normalized_address
 
 
-def validator_non_empty_text(value: object) -> str:
-    """Normaliza texto libre y rechaza valores vacíos."""
+def validator_text(value: object) -> str:
+    """Normaliza texto libre, incluido el texto vacío."""
     if not isinstance(value, str):
         raise ValueError("El valor debe ser texto.")
-    normalized_text = value.strip()
+    return value.strip()
+
+
+def validator_non_empty_text(value: object) -> str:
+    """Normaliza texto libre y rechaza valores vacíos."""
+    normalized_text = validator_text(value)
     if not normalized_text:
         raise ValueError("El texto no puede estar vacío.")
     return normalized_text
+
+
+def validator_redemption_code(value: object) -> str:
+    """Normaliza y valida un código de canje de exactamente ocho dígitos."""
+    if not isinstance(value, str):
+        raise ValueError("El código de canje debe ser texto.")
+    normalized_code = value.strip()
+    if re.fullmatch(r"[0-9]{8}", normalized_code) is None:
+        raise ValueError(
+            "El código de canje debe contener exactamente ocho dígitos."
+        )
+    return normalized_code
 
 
 def validator_http_url(value: object) -> str:

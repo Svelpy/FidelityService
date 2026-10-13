@@ -1,0 +1,378 @@
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
+
+import pytest
+
+from app.domains.canje.models import Canje
+from app.domains.canje.schemas import CanjeCreate
+from app.domains.canje.services import CanjeService
+from app.domains.config_puntos.models import ConfigPuntos
+from app.domains.config_puntos.services import ConfigPuntosService
+from app.domains.movimientos_puntos.models import MovimientoPuntos
+from app.domains.sucursal.models import Sucursal
+from app.domains.sucursal.services import SucursalService
+from app.domains.users.models import User
+from app.domains.users.services import UserService
+from app.domains.vale.models import Vale
+from app.domains.vale.services import ValeService
+from app.shared.enums import EstadoCanje, Genero, Role, TipoMovimiento
+from app.shared.errors.exceptions import AppException
+
+
+def _session() -> MagicMock:
+    session = MagicMock()
+    session.execute = AsyncMock()
+    session.commit = AsyncMock()
+    session.rollback = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
+
+
+def _client(*, points: int = 1_000) -> User:
+    return User(
+        nombre="Cliente",
+        ci="12345678",
+        telefono="71234567",
+        role=Role.CLIENTE,
+        genero=Genero.O,
+        puntos=points,
+        password_hash="hash",
+    )
+
+
+def _redemption(**overrides: object) -> Canje:
+    values: dict[str, object] = {
+        "cliente_id": uuid4(),
+        "dador_id": None,
+        "vale_id": uuid4(),
+        "status": EstadoCanje.PENDIENTE,
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=30),
+        "codigo_canje": "00123456",
+        "sucursal_id": None,
+        "total_puntos": 500,
+        "total_costo": Decimal("50.00"),
+        "referencia": None,
+        "config_punto_id": uuid4(),
+    }
+    values.update(overrides)
+    return Canje(**values)
+
+
+@pytest.mark.asyncio
+async def test_create_copia_vale_y_no_descuenta_puntos() -> None:
+    session = _session()
+    client = _client(points=700)
+    business_id = uuid4()
+    voucher = Vale(
+        total_costo=Decimal("50.00"),
+        total_puntos=500,
+        nombre="Vale Bs 50",
+        categoria_id=uuid4(),
+        negocio_id=business_id,
+    )
+    config = ConfigPuntos(
+        start_date=datetime.now(timezone.utc),
+        factor_asignacion_puntos=Decimal("0.100000"),
+        factor_costo_vale=Decimal("10.000000"),
+    )
+
+    with (
+        patch.object(ValeService, "get", new=AsyncMock(return_value=voucher)),
+        patch.object(UserService, "get", new=AsyncMock(return_value=client)),
+        patch.object(
+            ConfigPuntosService,
+            "get_active",
+            new=AsyncMock(return_value=config),
+        ),
+        patch.object(
+            CanjeService,
+            "_generate_unique_code",
+            new=AsyncMock(return_value="00123456"),
+        ),
+    ):
+        redemption = await CanjeService.create(
+            session,
+            CanjeCreate(vale_id=voucher.id, referencia=None),
+            client.id,
+            Role.CLIENTE,
+        )
+
+    assert redemption.status is EstadoCanje.PENDIENTE
+    assert redemption.codigo_canje == "00123456"
+    assert redemption.dador_id is None
+    assert redemption.sucursal_id is None
+    assert redemption.total_puntos == voucher.total_puntos
+    assert redemption.total_costo == voucher.total_costo
+    assert client.puntos == 700
+    assert redemption.expires_at - redemption.created_at == timedelta(days=30)
+    session.add.assert_called_once_with(redemption)
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_rechaza_saldo_insuficiente() -> None:
+    session = _session()
+    client = _client(points=499)
+    voucher = Vale(
+        total_costo=Decimal("50.00"),
+        total_puntos=500,
+        nombre="Vale",
+        categoria_id=uuid4(),
+        negocio_id=uuid4(),
+    )
+
+    with (
+        patch.object(ValeService, "get", new=AsyncMock(return_value=voucher)),
+        patch.object(UserService, "get", new=AsyncMock(return_value=client)),
+    ):
+        with pytest.raises(AppException) as error:
+            await CanjeService.create(
+                session,
+                CanjeCreate(vale_id=voucher.id, referencia=""),
+                client.id,
+                Role.CLIENTE,
+            )
+
+    assert error.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_generate_unique_code_conserva_ocho_digitos() -> None:
+    session = _session()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session.execute.return_value = result
+
+    with patch("app.domains.canje.services.secrets.randbelow", return_value=123):
+        code = await CanjeService._generate_unique_code(session)
+
+    assert code == "00000123"
+
+
+@pytest.mark.asyncio
+async def test_redeem_descuenta_saldo_y_registra_movimiento() -> None:
+    session = _session()
+    client = _client(points=700)
+    branch_id = uuid4()
+    actor_id = uuid4()
+    business_id = uuid4()
+    branch = Sucursal(nombre="Central", negocio_id=business_id)
+    branch.id = branch_id
+    redemption = _redemption(
+        cliente_id=client.id,
+    )
+    voucher = Vale(
+        total_costo=Decimal("50.00"),
+        total_puntos=500,
+        nombre="Vale",
+        categoria_id=uuid4(),
+        negocio_id=business_id,
+    )
+    voucher.id = redemption.vale_id
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = redemption
+    session.execute.return_value = result
+
+    with (
+        patch.object(
+            SucursalService,
+            "get",
+            new=AsyncMock(return_value=branch),
+        ),
+        patch.object(ValeService, "get", new=AsyncMock(return_value=voucher)),
+        patch.object(UserService, "get", new=AsyncMock(return_value=client)),
+    ):
+        redeemed = await CanjeService.redeem(
+            session,
+            redemption.codigo_canje,
+            actor_id,
+            Role.CAJERO,
+            branch_id,
+        )
+
+    assert redeemed.status is EstadoCanje.CANJEADO
+    assert redeemed.dador_id == actor_id
+    assert redeemed.sucursal_id == branch_id
+    assert client.puntos == 200
+    movements = [
+        call.args[0]
+        for call in session.add.call_args_list
+        if isinstance(call.args[0], MovimientoPuntos)
+    ]
+    assert len(movements) == 1
+    assert movements[0].tipo_movimiento is TipoMovimiento.CANJE
+    assert movements[0].canje_id == redemption.id
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_redeem_marca_codigo_expirado_sin_descontar() -> None:
+    session = _session()
+    redemption = _redemption(
+        expires_at=datetime.now(timezone.utc) - timedelta(seconds=1)
+    )
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = redemption
+    session.execute.return_value = result
+
+    with pytest.raises(AppException) as error:
+        await CanjeService.redeem(
+            session,
+            redemption.codigo_canje,
+            uuid4(),
+            Role.SOCIO,
+            uuid4(),
+        )
+
+    assert error.value.status_code == 409
+    assert redemption.status is EstadoCanje.EXPIRADO
+    session.commit.assert_awaited_once()
+    session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_redeem_rechaza_sucursal_de_otro_negocio() -> None:
+    session = _session()
+    redemption = _redemption()
+    branch = Sucursal(nombre="Otra", negocio_id=uuid4())
+    voucher = Vale(
+        total_costo=Decimal("50.00"),
+        total_puntos=500,
+        nombre="Vale",
+        categoria_id=uuid4(),
+        negocio_id=uuid4(),
+    )
+    voucher.id = redemption.vale_id
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = redemption
+    session.execute.return_value = result
+
+    with (
+        patch.object(
+            SucursalService,
+            "get",
+            new=AsyncMock(return_value=branch),
+        ),
+        patch.object(ValeService, "get", new=AsyncMock(return_value=voucher)),
+    ):
+        with pytest.raises(AppException) as error:
+            await CanjeService.redeem(
+                session,
+                redemption.codigo_canje,
+                uuid4(),
+                Role.CAJERO,
+                branch.id,
+            )
+
+    assert error.value.status_code == 422
+    assert redemption.dador_id is None
+    assert redemption.sucursal_id is None
+    session.add.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "role",
+    [Role.SUPERADMIN, Role.ADMIN, Role.CAJERO, Role.SOCIO],
+)
+@pytest.mark.asyncio
+async def test_cancel_permite_roles_autorizados_en_canje_pendiente(
+    role: Role,
+) -> None:
+    session = _session()
+    actor_id = uuid4()
+    redemption = _redemption()
+
+    with patch.object(
+        CanjeService,
+        "_get_raw",
+        new=AsyncMock(return_value=redemption),
+    ):
+        cancelled = await CanjeService.cancel(
+            session,
+            redemption.id,
+            actor_id,
+            role,
+        )
+
+    assert cancelled.status is EstadoCanje.CANCELADO
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancel_rechaza_cliente_aunque_sea_propietario() -> None:
+    session = _session()
+    client_id = uuid4()
+    redemption = _redemption(cliente_id=client_id)
+
+    with patch.object(
+        CanjeService,
+        "_get_raw",
+        new=AsyncMock(return_value=redemption),
+    ):
+        with pytest.raises(AppException) as error:
+            await CanjeService.cancel(
+                session,
+                redemption.id,
+                client_id,
+                Role.CLIENTE,
+            )
+
+    assert error.value.status_code == 403
+    assert redemption.status is EstadoCanje.PENDIENTE
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancel_detecta_expiracion_sin_registrar_movimiento() -> None:
+    session = _session()
+    redemption = _redemption(
+        expires_at=datetime.now(timezone.utc) - timedelta(seconds=1)
+    )
+
+    with patch.object(
+        CanjeService,
+        "_get_raw",
+        new=AsyncMock(return_value=redemption),
+    ):
+        with pytest.raises(AppException) as error:
+            await CanjeService.cancel(
+                session,
+                redemption.id,
+                uuid4(),
+                Role.ADMIN,
+            )
+
+    assert error.value.status_code == 409
+    assert redemption.status is EstadoCanje.EXPIRADO
+    session.add.assert_not_called()
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "redemption_status",
+    [EstadoCanje.CANJEADO, EstadoCanje.EXPIRADO, EstadoCanje.CANCELADO],
+)
+@pytest.mark.asyncio
+async def test_cancel_rechaza_canje_que_no_este_pendiente(
+    redemption_status: EstadoCanje,
+) -> None:
+    session = _session()
+    redemption = _redemption(status=redemption_status)
+
+    with patch.object(
+        CanjeService,
+        "_get_raw",
+        new=AsyncMock(return_value=redemption),
+    ):
+        with pytest.raises(AppException) as error:
+            await CanjeService.cancel(
+                session,
+                redemption.id,
+                uuid4(),
+                Role.ADMIN,
+            )
+
+    assert error.value.status_code == 409
+    session.commit.assert_not_awaited()

@@ -18,11 +18,29 @@ SOLO_LECTURA = {Action.READ}
 # Un módulo ausente en el dict de un rol == sin acceso a ese módulo
 # (ni siquiera lectura).
 ROLE_PERMISSIONS: dict[Role, dict[Module, set[Action]]] = {
-    Role.SUPERADMIN: {module: ALL_ACTIONS for module in Module},
-    Role.ADMIN: {module: SIN_ELIMINAR for module in Module},
-    Role.CAJERO: {},
-    Role.CLIENTE: {},
-    Role.SOCIO: {},
+    Role.SUPERADMIN: {
+        **{module: ALL_ACTIONS for module in Module},
+        Module.MOVIMIENTOS_PUNTOS: SOLO_LECTURA,
+    },
+    Role.ADMIN: {
+        **{module: SIN_ELIMINAR for module in Module},
+        Module.MOVIMIENTOS_PUNTOS: SOLO_LECTURA,
+    },
+    Role.CAJERO: {
+        Module.OPERACION: {Action.CREATE, Action.READ},
+        Module.CANJE: {Action.READ, Action.UPDATE},
+        Module.MOVIMIENTOS_PUNTOS: SOLO_LECTURA,
+    },
+    Role.CLIENTE: {
+        Module.OPERACION: SOLO_LECTURA,
+        Module.CANJE: {Action.CREATE, Action.READ},
+        Module.MOVIMIENTOS_PUNTOS: SOLO_LECTURA,
+    },
+    Role.SOCIO: {
+        Module.OPERACION: {Action.CREATE, Action.READ},
+        Module.CANJE: {Action.READ, Action.UPDATE},
+        Module.MOVIMIENTOS_PUNTOS: SOLO_LECTURA,
+    },
 }
 
 

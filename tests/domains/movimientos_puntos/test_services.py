@@ -90,7 +90,7 @@ async def test_get_detail_devuelve_relaciones_en_una_consulta() -> None:
     assert detail.negocio.id == business.id
     session.execute.assert_awaited_once()
     sql = str(session.execute.await_args.args[0].compile())
-    assert sql.count("LEFT OUTER JOIN") == 5
+    assert sql.count("LEFT OUTER JOIN") == 6
 
 
 @pytest.mark.asyncio
@@ -203,6 +203,33 @@ def test_register_redemption_rechaza_saldo_insuficiente() -> None:
     assert error.value.status_code == 409
     assert user.puntos == 100
     session.add.assert_not_called()
+
+
+def test_register_adjustment_repone_saldo_y_conserva_movimiento_origen() -> None:
+    session = MagicMock()
+    user = _user(points=300)
+    actor_id = uuid4()
+    movement_origin_id = uuid4()
+    occurred_at = datetime.now(timezone.utc)
+
+    movement = MovimientoPuntosService.register_adjustment(
+        session,
+        user,
+        200,
+        actor_id,
+        occurred_at,
+        movement_origin_id,
+    )
+
+    assert user.puntos == 500
+    assert user.updated_by == actor_id
+    assert movement.tipo_movimiento is TipoMovimiento.AJUSTE
+    assert movement.puntos == 200
+    assert movement.operacion_id is None
+    assert movement.canje_id is None
+    assert movement.movimiento_origen_id == movement_origin_id
+    session.add.assert_called_once_with(movement)
+    session.commit.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -42,6 +42,7 @@ class EstadoCanje(str, Enum):
 class TipoMovimiento(str, Enum):
     ACUMULA = "ACUMULA" #OPERACION (SUMA)
     CANJE = "CANJE"     #CANJE (RESTA)
+    AJUSTE = "AJUSTE"   #CANCELACION DE CANJE (SUMA)
 
 
 class Genero(str, Enum):

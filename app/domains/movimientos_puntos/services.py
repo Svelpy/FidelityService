@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.logging import get_logger
 from app.domains.canje.models import Canje
@@ -35,12 +36,33 @@ class MovimientoPuntosService:
     )
 
     @staticmethod
+    async def get_by_redemption_id(
+        db_session: AsyncSession,
+        redemption_id: UUID,
+        *,
+        for_update: bool = False,
+    ) -> MovimientoPuntos | None:
+        statement = select(MovimientoPuntos).where(
+            MovimientoPuntos.canje_id == redemption_id,
+            MovimientoPuntos.is_deleted.is_(False),
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        result = await db_session.execute(statement)
+        return result.scalar_one_or_none()
+
+    @staticmethod
     async def get_detail(
         db_session: AsyncSession,
         movement_id: UUID,
         actor_id: UUID,
         actor_role: Role,
     ) -> MovimientoPuntosDetailResponse:
+        origin_movement = aliased(MovimientoPuntos)
+        redemption_id = func.coalesce(
+            MovimientoPuntos.canje_id,
+            origin_movement.canje_id,
+        )
         branch_id = func.coalesce(Canje.sucursal_id, Operacion.sucursal_id)
         business_id = func.coalesce(Sucursal.negocio_id, Vale.negocio_id)
         filters = [
@@ -59,7 +81,11 @@ class MovimientoPuntosService:
                 Negocio,
             )
             .select_from(MovimientoPuntos)
-            .outerjoin(Canje, MovimientoPuntos.canje_id == Canje.id)
+            .outerjoin(
+                origin_movement,
+                MovimientoPuntos.movimiento_origen_id == origin_movement.id,
+            )
+            .outerjoin(Canje, redemption_id == Canje.id)
             .outerjoin(Operacion, MovimientoPuntos.operacion_id == Operacion.id)
             .outerjoin(Sucursal, Sucursal.id == branch_id)
             .outerjoin(Vale, Vale.id == Canje.vale_id)
@@ -191,6 +217,7 @@ class MovimientoPuntosService:
             puntos=points,
             operacion_id=operation_id,
             canje_id=None,
+            movimiento_origen_id=None,
             created_at=occurred_at,
             created_by=actor_id,
             updated_at=occurred_at,
@@ -235,6 +262,55 @@ class MovimientoPuntosService:
             puntos=points,
             operacion_id=None,
             canje_id=redemption_id,
+            movimiento_origen_id=None,
+            created_at=occurred_at,
+            created_by=actor_id,
+            updated_at=occurred_at,
+            updated_by=actor_id,
+            is_deleted=False,
+        )
+        db_session.add(movement)
+        return movement
+
+    @classmethod
+    def register_adjustment(
+        cls,
+        db_session: AsyncSession,
+        user: User,
+        points: int,
+        actor_id: UUID,
+        occurred_at: datetime,
+        movement_origin_id: UUID | None = None,
+    ) -> MovimientoPuntos:
+        """Registra AJUSTE y repone saldo sin confirmar la transacción."""
+        if points <= 0:
+            raise AppException(
+                "El canje debe contener una cantidad positiva de puntos.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+                {"puntos": "La cantidad de puntos debe ser mayor que cero."},
+            )
+
+        new_balance = user.puntos + points
+        if new_balance > cls._MAX_USER_POINTS:
+            raise AppException(
+                "La reposición excede el saldo máximo permitido.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+                {"puntos": "La operación excede el saldo máximo permitido."},
+            )
+
+        user.puntos = new_balance
+        user.updated_at = occurred_at
+        user.updated_by = actor_id
+
+        movement = MovimientoPuntos(
+            usuario_id=user.id,
+            tipo_movimiento=TipoMovimiento.AJUSTE,
+            puntos=points,
+            operacion_id=None,
+            canje_id=None,
+            movimiento_origen_id=movement_origin_id,
             created_at=occurred_at,
             created_by=actor_id,
             updated_at=occurred_at,

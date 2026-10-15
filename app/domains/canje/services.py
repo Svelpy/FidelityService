@@ -275,7 +275,7 @@ class CanjeService:
             )
 
         voucher = await ValeService.get(db_session, data.vale_id)
-        client = await UserService.get(db_session, actor_id)
+        client = await UserService.get(db_session, actor_id, for_update=True)
         if client.puntos < voucher.total_puntos:
             raise AppException(
                 "No tienes puntos suficientes para solicitar este canje.",
@@ -307,9 +307,26 @@ class CanjeService:
             is_deleted=False,
         )
         db_session.add(redemption)
+        try:
+            await db_session.flush()
+            MovimientoPuntosService.register_redemption(
+                db_session,
+                client,
+                redemption.total_puntos,
+                redemption.id,
+                actor_id,
+                now,
+            )
+        except IntegrityError as error:
+            await db_session.rollback()
+            raise cls._integrity_exception(error) from error
+        except Exception:
+            await db_session.rollback()
+            raise
+
         await cls._commit(db_session, redemption)
         logger.info(
-            "Canje solicitado: canje_id=%s cliente_id=%s",
+            "Canje solicitado y puntos descontados: canje_id=%s cliente_id=%s",
             redemption.id,
             client.id,
         )
@@ -409,35 +426,18 @@ class CanjeService:
                 ErrorCode.VALIDATION_ERROR,
                 {"sucursal_id": "La sucursal pertenece a otro negocio."},
             )
-        client = await UserService.get(
-            db_session,
-            redemption.cliente_id,
-            for_update=True,
-        )
-        try:
-            MovimientoPuntosService.register_redemption(
-                db_session,
-                client,
-                redemption.total_puntos,
-                redemption.id,
-                actor_id,
-                now,
-            )
-            redemption.status = EstadoCanje.CANJEADO
-            redemption.dador_id = actor_id
-            redemption.sucursal_id = branch.id
-            redemption.updated_at = now
-            redemption.updated_by = actor_id
-        except Exception:
-            await db_session.rollback()
-            raise
+        redemption.status = EstadoCanje.CANJEADO
+        redemption.dador_id = actor_id
+        redemption.sucursal_id = branch.id
+        redemption.updated_at = now
+        redemption.updated_by = actor_id
 
         await cls._commit(db_session, redemption)
         logger.info(
             "Canje confirmado: canje_id=%s dador_id=%s cliente_id=%s",
             redemption.id,
             actor_id,
-            client.id,
+            redemption.cliente_id,
         )
         return redemption
 
@@ -480,12 +480,35 @@ class CanjeService:
                 ErrorCode.CONFLICT,
             )
 
-        redemption.status = EstadoCanje.CANCELADO
-        redemption.updated_at = now
-        redemption.updated_by = actor_id
+        movement = await MovimientoPuntosService.get_by_redemption_id(
+            db_session,
+            redemption.id,
+            for_update=True,
+        )
+        client = await UserService.get(
+            db_session,
+            redemption.cliente_id,
+            for_update=True,
+        )
+        try:
+            MovimientoPuntosService.register_adjustment(
+                db_session,
+                client,
+                redemption.total_puntos,
+                actor_id,
+                now,
+                movement.id if movement is not None else None,
+            )
+            redemption.status = EstadoCanje.CANCELADO
+            redemption.updated_at = now
+            redemption.updated_by = actor_id
+        except Exception:
+            await db_session.rollback()
+            raise
+
         await cls._commit(db_session, redemption)
         logger.info(
-            "Canje cancelado: canje_id=%s actor_id=%s",
+            "Canje cancelado y puntos repuestos: canje_id=%s actor_id=%s",
             redemption.id,
             actor_id,
         )

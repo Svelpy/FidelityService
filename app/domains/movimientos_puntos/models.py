@@ -18,13 +18,22 @@ class MovimientoPuntos(BaseModel, table=True):
             "canje_id",
             name="uq_movimientos_puntos_canje_id",
         ),
+        UniqueConstraint(
+            "movimiento_origen_id",
+            name="uq_movimientos_puntos_movimiento_origen_id",
+        ),
         CheckConstraint(
             "("
             "tipo_movimiento = 'ACUMULA' "
-            "AND operacion_id IS NOT NULL AND canje_id IS NULL"
+            "AND operacion_id IS NOT NULL AND canje_id IS NULL "
+            "AND movimiento_origen_id IS NULL"
             ") OR ("
             "tipo_movimiento = 'CANJE' "
-            "AND canje_id IS NOT NULL AND operacion_id IS NULL"
+            "AND canje_id IS NOT NULL AND operacion_id IS NULL "
+            "AND movimiento_origen_id IS NULL"
+            ") OR ("
+            "tipo_movimiento = 'AJUSTE' "
+            "AND operacion_id IS NULL AND canje_id IS NULL"
             ")",
             name="ck_movimientos_puntos_referencia_por_tipo",
         ),
@@ -35,6 +44,10 @@ class MovimientoPuntos(BaseModel, table=True):
         Index("ix_movimientos_puntos_usuario_id", "usuario_id"),
         Index("ix_movimientos_puntos_operacion_id", "operacion_id"),
         Index("ix_movimientos_puntos_canje_id", "canje_id"),
+        Index(
+            "ix_movimientos_puntos_movimiento_origen_id",
+            "movimiento_origen_id",
+        ),
         {"schema": "public"},
     )
 
@@ -57,5 +70,10 @@ class MovimientoPuntos(BaseModel, table=True):
     canje_id: UUID | None = Field(
         default=None,
         foreign_key="public.canje.id",
+        nullable=True,
+    )
+    movimiento_origen_id: UUID | None = Field(
+        default=None,
+        foreign_key="public.movimientos_puntos.id",
         nullable=True,
     )

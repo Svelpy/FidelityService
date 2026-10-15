@@ -11,6 +11,7 @@ from app.domains.canje.services import CanjeService
 from app.domains.config_puntos.models import ConfigPuntos
 from app.domains.config_puntos.services import ConfigPuntosService
 from app.domains.movimientos_puntos.models import MovimientoPuntos
+from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.domains.sucursal.models import Sucursal
 from app.domains.sucursal.services import SucursalService
 from app.domains.users.models import User
@@ -27,6 +28,7 @@ def _session() -> MagicMock:
     session.commit = AsyncMock()
     session.rollback = AsyncMock()
     session.refresh = AsyncMock()
+    session.flush = AsyncMock()
     return session
 
 
@@ -133,7 +135,7 @@ async def test_list_for_user_incluye_cliente_o_dador() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_copia_vale_y_no_descuenta_puntos() -> None:
+async def test_create_copia_vale_descuenta_puntos_y_registra_movimiento() -> None:
     session = _session()
     client = _client(points=700)
     business_id = uuid4()
@@ -177,9 +179,18 @@ async def test_create_copia_vale_y_no_descuenta_puntos() -> None:
     assert redemption.sucursal_id is None
     assert redemption.total_puntos == voucher.total_puntos
     assert redemption.total_costo == voucher.total_costo
-    assert client.puntos == 700
+    assert client.puntos == 200
     assert redemption.expires_at - redemption.created_at == timedelta(days=30)
-    session.add.assert_called_once_with(redemption)
+    assert session.add.call_args_list[0].args[0] is redemption
+    movements = [
+        call.args[0]
+        for call in session.add.call_args_list
+        if isinstance(call.args[0], MovimientoPuntos)
+    ]
+    assert len(movements) == 1
+    assert movements[0].tipo_movimiento is TipoMovimiento.CANJE
+    assert movements[0].canje_id == redemption.id
+    session.flush.assert_awaited_once()
     session.commit.assert_awaited_once()
 
 
@@ -244,7 +255,7 @@ async def test_generate_unique_code_conserva_ocho_digitos() -> None:
 
 
 @pytest.mark.asyncio
-async def test_redeem_descuenta_saldo_y_registra_movimiento() -> None:
+async def test_redeem_confirma_sin_modificar_saldo_ni_registrar_movimiento() -> None:
     session = _session()
     client = _client(points=700)
     branch_id = uuid4()
@@ -274,7 +285,6 @@ async def test_redeem_descuenta_saldo_y_registra_movimiento() -> None:
             new=AsyncMock(return_value=branch),
         ),
         patch.object(ValeService, "get", new=AsyncMock(return_value=voucher)),
-        patch.object(UserService, "get", new=AsyncMock(return_value=client)),
     ):
         redeemed = await CanjeService.redeem(
             session,
@@ -287,15 +297,13 @@ async def test_redeem_descuenta_saldo_y_registra_movimiento() -> None:
     assert redeemed.status is EstadoCanje.CANJEADO
     assert redeemed.dador_id == actor_id
     assert redeemed.sucursal_id == branch_id
-    assert client.puntos == 200
+    assert client.puntos == 700
     movements = [
         call.args[0]
         for call in session.add.call_args_list
         if isinstance(call.args[0], MovimientoPuntos)
     ]
-    assert len(movements) == 1
-    assert movements[0].tipo_movimiento is TipoMovimiento.CANJE
-    assert movements[0].canje_id == redemption.id
+    assert movements == []
     session.commit.assert_awaited_once()
 
 
@@ -375,11 +383,28 @@ async def test_cancel_permite_roles_autorizados_en_canje_pendiente(
     session = _session()
     actor_id = uuid4()
     redemption = _redemption()
+    client = _client(points=200)
+    client.id = redemption.cliente_id
+    movement = MovimientoPuntos(
+        usuario_id=client.id,
+        tipo_movimiento=TipoMovimiento.CANJE,
+        puntos=redemption.total_puntos,
+        operacion_id=None,
+        canje_id=redemption.id,
+    )
 
-    with patch.object(
-        CanjeService,
-        "_get_raw",
-        new=AsyncMock(return_value=redemption),
+    with (
+        patch.object(
+            CanjeService,
+            "_get_raw",
+            new=AsyncMock(return_value=redemption),
+        ),
+        patch.object(
+            MovimientoPuntosService,
+            "get_by_redemption_id",
+            new=AsyncMock(return_value=movement),
+        ),
+        patch.object(UserService, "get", new=AsyncMock(return_value=client)),
     ):
         cancelled = await CanjeService.cancel(
             session,
@@ -389,6 +414,52 @@ async def test_cancel_permite_roles_autorizados_en_canje_pendiente(
         )
 
     assert cancelled.status is EstadoCanje.CANCELADO
+    assert client.puntos == 700
+    assert client.updated_by == actor_id
+    assert movement.is_deleted is False
+    adjustments = [
+        call.args[0]
+        for call in session.add.call_args_list
+        if isinstance(call.args[0], MovimientoPuntos)
+    ]
+    assert len(adjustments) == 1
+    assert adjustments[0].tipo_movimiento is TipoMovimiento.AJUSTE
+    assert adjustments[0].movimiento_origen_id == movement.id
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancel_sin_movimiento_previo_tambien_repone_puntos() -> None:
+    session = _session()
+    redemption = _redemption()
+    client = _client(points=200)
+    client.id = redemption.cliente_id
+
+    with (
+        patch.object(
+            CanjeService,
+            "_get_raw",
+            new=AsyncMock(return_value=redemption),
+        ),
+        patch.object(
+            MovimientoPuntosService,
+            "get_by_redemption_id",
+            new=AsyncMock(return_value=None),
+        ),
+        patch.object(UserService, "get", new=AsyncMock(return_value=client)),
+    ):
+        cancelled = await CanjeService.cancel(
+            session,
+            redemption.id,
+            uuid4(),
+            Role.ADMIN,
+        )
+
+    assert cancelled.status is EstadoCanje.CANCELADO
+    assert client.puntos == 700
+    adjustment = session.add.call_args.args[0]
+    assert adjustment.tipo_movimiento is TipoMovimiento.AJUSTE
+    assert adjustment.movimiento_origen_id is None
     session.commit.assert_awaited_once()
 
 

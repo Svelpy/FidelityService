@@ -17,6 +17,7 @@ class MovimientoPuntosResponse(BaseModel):
     puntos: int
     operacion_id: UUID | None
     canje_id: UUID | None
+    movimiento_origen_id: UUID | None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(
@@ -29,6 +30,7 @@ class MovimientoPuntosResponse(BaseModel):
                 "puntos": 150,
                 "operacion_id": "33333333-3333-4333-8333-333333333333",
                 "canje_id": None,
+                "movimiento_origen_id": None,
                 "created_at": "2026-10-12T14:30:00Z",
                 "updated_at": "2026-10-12T14:30:00Z",
             }
@@ -55,6 +57,7 @@ class MovimientoPuntosResponseAudit(MovimientoPuntosResponse):
                 "puntos": 150,
                 "operacion_id": "33333333-3333-4333-8333-333333333333",
                 "canje_id": None,
+                "movimiento_origen_id": None,
                 "created_at": "2026-10-12T14:30:00Z",
                 "created_by": "44444444-4444-4444-8444-444444444444",
                 "updated_at": "2026-10-12T14:30:00Z",

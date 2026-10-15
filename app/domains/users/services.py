@@ -445,6 +445,15 @@ class UserService:
         db_session.add(user)
         if commit:
             await cls._commit(db_session, user)
+        else:
+            try:
+                await db_session.flush()
+            except IntegrityError as error:
+                await db_session.rollback()
+                raise cls._integrity_exception(error) from error
+            except Exception:
+                await db_session.rollback()
+                raise
 
         logger.info("Cliente registrado: user_id=%s", user.id)
         return user

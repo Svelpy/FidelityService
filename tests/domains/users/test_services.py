@@ -44,6 +44,7 @@ def _user(**overrides: object) -> User:
 def _session() -> MagicMock:
     session = MagicMock()
     session.execute = AsyncMock()
+    session.flush = AsyncMock()
     session.commit = AsyncMock()
     session.rollback = AsyncMock()
     session.refresh = AsyncMock()
@@ -332,6 +333,7 @@ async def test_register_sin_commit_permite_transaccion_externa() -> None:
     session.add.assert_called_once_with(user)
     assert user.role is Role.CLIENTE
     assert user.sucursal_id is None
+    session.flush.assert_awaited_once()
     session.commit.assert_not_awaited()
     session.refresh.assert_not_awaited()
 

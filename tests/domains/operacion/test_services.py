@@ -22,6 +22,7 @@ from app.shared.errors.exceptions import AppException
 def _session() -> MagicMock:
     session = MagicMock()
     session.execute = AsyncMock()
+    session.flush = AsyncMock()
     session.commit = AsyncMock()
     session.rollback = AsyncMock()
     session.refresh = AsyncMock()
@@ -115,6 +116,7 @@ async def test_create_registra_operacion_saldo_y_movimiento_atomicamente() -> No
     get_branch.assert_awaited_once_with(session, branch_id)
     get_user.assert_awaited_once_with(session, client.id, for_update=True)
     register_user.assert_not_awaited()
+    session.flush.assert_awaited_once()
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(operation)
 

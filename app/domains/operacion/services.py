@@ -220,6 +220,7 @@ class OperacionService:
         )
         try:
             db_session.add(operation)
+            await db_session.flush()
             MovimientoPuntosService.register_accrual(
                 db_session,
                 recipient,
@@ -228,6 +229,9 @@ class OperacionService:
                 actor_id,
                 now,
             )
+        except IntegrityError as error:
+            await db_session.rollback()
+            raise cls._integrity_exception(error) from error
         except Exception:
             await db_session.rollback()
             raise

@@ -3,6 +3,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.domains.canje.schemas import CanjeResponse
+from app.domains.negocio.schemas import NegocioResponse
+from app.domains.operacion.schemas import OperacionResponse
+from app.domains.sucursal.schemas import SucursalResponse
 from app.shared.enums import TipoMovimiento
 
 
@@ -58,3 +62,11 @@ class MovimientoPuntosResponseAudit(MovimientoPuntosResponse):
             }
         },
     )
+
+
+class MovimientoPuntosDetailResponse(BaseModel):
+    data: MovimientoPuntosResponse
+    canje: CanjeResponse | None
+    operacion: OperacionResponse | None
+    sucursal: SucursalResponse | None
+    negocio: NegocioResponse | None

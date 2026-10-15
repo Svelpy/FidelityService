@@ -14,8 +14,10 @@ from app.domains.auth.dependencies import get_current_principal
 from app.domains.auth.schemas import CurrentUser
 from app.domains.canje.models import Canje
 from app.domains.canje.routes import router
+from app.domains.canje.schemas import CanjeExpireResponse, CanjeResponse
 from app.domains.canje.services import CanjeService
 from app.shared.enums import EstadoCanje, Role
+from app.shared.schemas.pagination import PaginatedResponse
 
 
 def _redemption() -> Canje:
@@ -83,6 +85,94 @@ def test_create_delega_cliente_y_expiracion(
     )
 
 
+def test_list_delega_todos_los_filtros(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, principal, session = route_context
+    redemption = _redemption()
+    dador_id = uuid4()
+    sucursal_id = uuid4()
+    page = PaginatedResponse[CanjeResponse](
+        total=1,
+        page=2,
+        per_page=10,
+        total_pages=1,
+        data=[redemption],
+    )
+    with patch.object(
+        CanjeService,
+        "list",
+        new=AsyncMock(return_value=page),
+    ) as service:
+        response = client.get(
+            "/canjes/",
+            params={
+                "page": 2,
+                "per_page": 10,
+                "cliente_id": str(redemption.cliente_id),
+                "dador_id": str(dador_id),
+                "vale_id": str(redemption.vale_id),
+                "status": EstadoCanje.CANJEADO.value,
+                "sucursal_id": str(sucursal_id),
+            },
+        )
+
+    assert response.status_code == 200
+    service.assert_awaited_once_with(
+        session,
+        principal.id,
+        principal.role,
+        principal.sucursal_id,
+        page=2,
+        per_page=10,
+        cliente_id=redemption.cliente_id,
+        dador_id=dador_id,
+        vale_id=redemption.vale_id,
+        status=EstadoCanje.CANJEADO,
+        sucursal_id=sucursal_id,
+    )
+
+
+@pytest.mark.parametrize(
+    "filter_name",
+    ["cliente_id", "dador_id", "vale_id", "sucursal_id"],
+)
+def test_list_rechaza_ids_de_filtro_invalidos(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+    filter_name: str,
+) -> None:
+    client, _, _ = route_context
+
+    assert client.get("/canjes/", params={filter_name: "invalido"}).status_code == 422
+
+
+def test_list_me_delega_usuario_y_paginacion(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, principal, session = route_context
+    page = PaginatedResponse[CanjeResponse](
+        total=0,
+        page=2,
+        per_page=10,
+        total_pages=0,
+        data=[],
+    )
+    with patch.object(
+        CanjeService,
+        "list_for_user",
+        new=AsyncMock(return_value=page),
+    ) as service:
+        response = client.get("/canjes/me", params={"page": 2, "per_page": 10})
+
+    assert response.status_code == 200
+    service.assert_awaited_once_with(
+        session,
+        principal.id,
+        page=2,
+        per_page=10,
+    )
+
+
 def test_redeem_delega_codigo_y_sucursal(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
@@ -108,6 +198,22 @@ def test_redeem_delega_codigo_y_sucursal(
         principal.role,
         principal.sucursal_id,
     )
+
+
+def test_expire_delega_actor_autenticado(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, principal, session = route_context
+    with patch.object(
+        CanjeService,
+        "expire_pending",
+        new=AsyncMock(return_value=CanjeExpireResponse(expired_count=3)),
+    ) as service:
+        response = client.post("/canjes/expire")
+
+    assert response.status_code == 200
+    assert response.json() == {"expired_count": 3}
+    service.assert_awaited_once_with(session, actor_id=principal.id)
 
 
 def test_cancel_delega_identidad_del_cajero(

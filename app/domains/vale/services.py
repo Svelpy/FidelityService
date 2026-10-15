@@ -152,6 +152,8 @@ class ValeService:
         db_session: AsyncSession,
         data: ValeCreate,
         actor_id: UUID,
+        image: UploadFile | None = None,
+        settings: Settings | None = None,
     ) -> Vale:
         await CategoriaService.get(db_session, data.categoria_id)
         await NegocioService.get(db_session, data.negocio_id)
@@ -165,8 +167,25 @@ class ValeService:
             updated_by=actor_id,
             is_deleted=False,
         )
+        new_image_url: str | None = None
+        if image is not None:
+            if settings is None:
+                raise RuntimeError("Settings es obligatorio para subir una imagen.")
+            upload_result = await CloudinaryService.upload_image(
+                image,
+                folder=f"vales/{vale.id}",
+                settings=settings,
+            )
+            new_image_url = upload_result["url"]
+            vale.image_url = new_image_url
         db_session.add(vale)
-        await cls._commit(db_session, vale)
+        try:
+            await cls._commit_transaction(db_session)
+        except Exception:
+            if new_image_url is not None:
+                await CloudinaryService.safe_delete_image(new_image_url)
+            raise
+        await db_session.refresh(vale)
         logger.info("Vale creado: vale_id=%s actor_id=%s", vale.id, actor_id)
         return vale
 
@@ -177,20 +196,49 @@ class ValeService:
         vale_id: UUID,
         data: ValeUpdate,
         actor_id: UUID,
+        image: UploadFile | None = None,
+        settings: Settings | None = None,
     ) -> Vale:
         changes = data.model_dump(exclude_unset=True)
         vale = await cls.get(db_session, vale_id, for_update=True)
-        if not changes:
+        if not changes and image is None:
             return vale
         if "categoria_id" in changes:
             await CategoriaService.get(db_session, changes["categoria_id"])
         if "negocio_id" in changes:
             await NegocioService.get(db_session, changes["negocio_id"])
+
+        previous_image_url = vale.image_url
+        new_image_url: str | None = None
+        if image is not None:
+            if settings is None:
+                raise RuntimeError("Settings es obligatorio para subir una imagen.")
+            upload_result = await CloudinaryService.upload_image(
+                image,
+                folder=f"vales/{vale.id}",
+                settings=settings,
+            )
+            new_image_url = upload_result["url"]
+
         for field_name, value in changes.items():
             setattr(vale, field_name, value)
+        if new_image_url is not None:
+            vale.image_url = new_image_url
         vale.updated_at = datetime.now(timezone.utc)
         vale.updated_by = actor_id
-        await cls._commit(db_session, vale)
+        try:
+            await cls._commit_transaction(db_session)
+        except Exception:
+            if new_image_url is not None:
+                await CloudinaryService.safe_delete_image(new_image_url)
+            raise
+        await db_session.refresh(vale)
+        if (
+            new_image_url is not None
+            and previous_image_url is not None
+            and previous_image_url != new_image_url
+        ):
+            await CloudinaryService.safe_delete_image(previous_image_url)
         logger.info("Vale actualizado: vale_id=%s actor_id=%s", vale.id, actor_id)
         return vale
 
@@ -209,52 +257,4 @@ class ValeService:
         vale.updated_at = now
         vale.updated_by = actor_id
         await cls._commit(db_session, vale)
-        return vale
-
-    @classmethod
-    async def upload_image(
-        cls,
-        db_session: AsyncSession,
-        vale_id: UUID,
-        file: UploadFile,
-        actor_id: UUID,
-        settings: Settings,
-    ) -> Vale:
-        vale = await cls.get(db_session, vale_id, for_update=True)
-        previous_url = vale.image_url
-        result = await CloudinaryService.upload_image(
-            file,
-            folder=f"vales/{vale.id}",
-            settings=settings,
-        )
-        new_url = result["url"]
-        vale.image_url = new_url
-        vale.updated_at = datetime.now(timezone.utc)
-        vale.updated_by = actor_id
-        try:
-            await cls._commit_transaction(db_session)
-        except Exception:
-            await CloudinaryService.safe_delete_image(new_url)
-            raise
-        await db_session.refresh(vale)
-        if previous_url and previous_url != new_url:
-            await CloudinaryService.safe_delete_image(previous_url)
-        return vale
-
-    @classmethod
-    async def delete_image(
-        cls,
-        db_session: AsyncSession,
-        vale_id: UUID,
-        actor_id: UUID,
-    ) -> Vale:
-        vale = await cls.get(db_session, vale_id, for_update=True)
-        previous_url = vale.image_url
-        if previous_url is None:
-            return vale
-        vale.image_url = None
-        vale.updated_at = datetime.now(timezone.utc)
-        vale.updated_by = actor_id
-        await cls._commit(db_session, vale)
-        await CloudinaryService.safe_delete_image(previous_url)
         return vale

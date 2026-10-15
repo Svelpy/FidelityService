@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.domains.auth.dependencies import get_current_principal
 from app.domains.auth.schemas import CurrentUser
+from app.domains.movimientos_puntos.models import MovimientoPuntos
 from app.domains.movimientos_puntos.routes import router
+from app.domains.movimientos_puntos.schemas import MovimientoPuntosDetailResponse
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.shared.enums import Role, TipoMovimiento
 from app.shared.schemas.pagination import PaginatedResponse
@@ -84,7 +86,7 @@ def test_get_by_user_id_delega_rol_y_paginacion(
         "list_by_user_id",
         new=AsyncMock(return_value=_empty_page(page=1, per_page=20)),
     ) as service:
-        response = client.get(f"/movimientos-puntos/{user_id}")
+        response = client.get(f"/movimientos-puntos/usuario/{user_id}")
 
     assert response.status_code == 200
     service.assert_awaited_once_with(
@@ -94,4 +96,39 @@ def test_get_by_user_id_delega_rol_y_paginacion(
         page=1,
         per_page=20,
         movement_type=None,
+    )
+
+
+def test_get_by_id_delega_identidad_del_actor(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, principal, session = route_context
+    movement = MovimientoPuntos(
+        usuario_id=principal.id,
+        tipo_movimiento=TipoMovimiento.ACUMULA,
+        puntos=10,
+        operacion_id=uuid4(),
+        canje_id=None,
+    )
+    detail = MovimientoPuntosDetailResponse(
+        data=movement,
+        canje=None,
+        operacion=None,
+        sucursal=None,
+        negocio=None,
+    )
+    with patch.object(
+        MovimientoPuntosService,
+        "get_detail",
+        new=AsyncMock(return_value=detail),
+    ) as service:
+        response = client.get(f"/movimientos-puntos/{movement.id}")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["id"] == str(movement.id)
+    service.assert_awaited_once_with(
+        session,
+        movement.id,
+        principal.id,
+        principal.role,
     )

@@ -125,17 +125,62 @@ async def test_create_valida_referencias_y_respeta_puntos_manuales() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_guarda_imagen_en_la_misma_operacion() -> None:
+    session = _session()
+    actor_id = uuid4()
+    image = MagicMock(spec=UploadFile)
+    settings = MagicMock(spec=Settings)
+    image_url = "https://res.cloudinary.com/demo/image/upload/vale.jpg"
+    data = ValeCreate(
+        total_costo="50.00",
+        total_puntos=450,
+        nombre="Vale Bs 50",
+        categoria_id=uuid4(),
+        negocio_id=uuid4(),
+    )
+    with (
+        patch.object(CategoriaService, "get", new=AsyncMock()),
+        patch.object(NegocioService, "get", new=AsyncMock()),
+        patch.object(
+            CloudinaryService,
+            "upload_image",
+            new=AsyncMock(return_value={"url": image_url}),
+        ) as upload_image,
+    ):
+        vale = await ValeService.create(
+            session,
+            data,
+            actor_id,
+            image=image,
+            settings=settings,
+        )
+    assert vale.image_url == image_url
+    upload_image.assert_awaited_once_with(
+        image,
+        folder=f"vales/{vale.id}",
+        settings=settings,
+    )
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(vale)
+
+
+@pytest.mark.asyncio
 async def test_update_conserva_null_explicito() -> None:
     vale = _vale(descripcion="Texto")
     with (
         patch.object(ValeService, "get", new=AsyncMock(return_value=vale)),
-        patch.object(ValeService, "_commit", new=AsyncMock()) as commit,
+        patch.object(ValeService, "_commit_transaction", new=AsyncMock()) as commit,
     ):
+        session = _session()
         updated = await ValeService.update(
-            MagicMock(), vale.id, ValeUpdate(descripcion=None), uuid4()
+            session,
+            vale.id,
+            ValeUpdate(descripcion=None),
+            uuid4(),
         )
     assert updated.descripcion is None
     commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(vale)
 
 
 @pytest.mark.asyncio
@@ -147,10 +192,11 @@ async def test_update_valida_nuevas_referencias() -> None:
         patch.object(ValeService, "get", new=AsyncMock(return_value=vale)),
         patch.object(CategoriaService, "get", new=AsyncMock()) as category,
         patch.object(NegocioService, "get", new=AsyncMock()) as business,
-        patch.object(ValeService, "_commit", new=AsyncMock()),
+        patch.object(ValeService, "_commit_transaction", new=AsyncMock()),
     ):
+        session = _session()
         updated = await ValeService.update(
-            MagicMock(),
+            session,
             vale.id,
             ValeUpdate(categoria_id=categoria_id, negocio_id=negocio_id),
             uuid4(),
@@ -159,6 +205,43 @@ async def test_update_valida_nuevas_referencias() -> None:
     assert updated.negocio_id == negocio_id
     category.assert_awaited_once()
     business.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(vale)
+
+
+@pytest.mark.asyncio
+async def test_update_reemplaza_imagen_en_la_misma_operacion() -> None:
+    old_url = "https://res.cloudinary.com/demo/image/upload/old.jpg"
+    new_url = "https://res.cloudinary.com/demo/image/upload/new.jpg"
+    vale = _vale(image_url=old_url)
+    session = _session()
+    image = MagicMock(spec=UploadFile)
+    settings = MagicMock(spec=Settings)
+    with (
+        patch.object(ValeService, "get", new=AsyncMock(return_value=vale)),
+        patch.object(
+            CloudinaryService,
+            "upload_image",
+            new=AsyncMock(return_value={"url": new_url}),
+        ),
+        patch.object(
+            CloudinaryService,
+            "safe_delete_image",
+            new=AsyncMock(),
+        ) as delete_image,
+    ):
+        updated = await ValeService.update(
+            session,
+            vale.id,
+            ValeUpdate(nombre="Vale actualizado"),
+            uuid4(),
+            image=image,
+            settings=settings,
+        )
+    assert updated.nombre == "Vale actualizado"
+    assert updated.image_url == new_url
+    delete_image.assert_awaited_once_with(old_url)
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(vale)
 
 
 @pytest.mark.asyncio
@@ -183,66 +266,3 @@ async def test_commit_traduce_integrity_error() -> None:
         await ValeService._commit(session, _vale())
     assert error.value.status_code == 409
     session.rollback.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_upload_image_reemplaza_anterior() -> None:
-    old_url = "https://res.cloudinary.com/demo/image/upload/old.jpg"
-    new_url = "https://res.cloudinary.com/demo/image/upload/new.jpg"
-    vale = _vale(image_url=old_url)
-    session = _session()
-    with (
-        patch.object(ValeService, "get", new=AsyncMock(return_value=vale)),
-        patch.object(ValeService, "_commit_transaction", new=AsyncMock()),
-        patch.object(
-            CloudinaryService,
-            "upload_image",
-            new=AsyncMock(return_value={"url": new_url}),
-        ),
-        patch.object(
-            CloudinaryService, "safe_delete_image", new=AsyncMock()
-        ) as delete_image,
-    ):
-        updated = await ValeService.upload_image(
-            session,
-            vale.id,
-            MagicMock(spec=UploadFile),
-            uuid4(),
-            MagicMock(spec=Settings),
-        )
-    assert updated.image_url == new_url
-    delete_image.assert_awaited_once_with(old_url)
-    session.refresh.assert_awaited_once_with(vale)
-
-
-@pytest.mark.asyncio
-async def test_delete_image_sin_imagen_es_idempotente() -> None:
-    vale = _vale(image_url=None)
-    with (
-        patch.object(ValeService, "get", new=AsyncMock(return_value=vale)),
-        patch.object(ValeService, "_commit", new=AsyncMock()) as commit,
-        patch.object(
-            CloudinaryService, "safe_delete_image", new=AsyncMock()
-        ) as delete_image,
-    ):
-        updated = await ValeService.delete_image(MagicMock(), vale.id, uuid4())
-    assert updated is vale
-    commit.assert_not_awaited()
-    delete_image.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_delete_image_limpia_url_y_cloudinary() -> None:
-    url = "https://res.cloudinary.com/demo/image/upload/vale.jpg"
-    vale = _vale(image_url=url)
-    with (
-        patch.object(ValeService, "get", new=AsyncMock(return_value=vale)),
-        patch.object(ValeService, "_commit", new=AsyncMock()) as commit,
-        patch.object(
-            CloudinaryService, "safe_delete_image", new=AsyncMock()
-        ) as delete_image,
-    ):
-        updated = await ValeService.delete_image(MagicMock(), vale.id, uuid4())
-    assert updated.image_url is None
-    commit.assert_awaited_once()
-    delete_image.assert_awaited_once_with(url)

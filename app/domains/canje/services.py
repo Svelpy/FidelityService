@@ -2,13 +2,13 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.domains.canje.models import Canje
-from app.domains.canje.schemas import CanjeCreate, CanjeResponse
+from app.domains.canje.schemas import CanjeCreate, CanjeExpireResponse, CanjeResponse
 from app.domains.config_puntos.services import ConfigPuntosService
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.domains.sucursal.services import SucursalService
@@ -169,7 +169,11 @@ class CanjeService:
         *,
         page: int = 1,
         per_page: int = 20,
+        cliente_id: UUID | None = None,
+        dador_id: UUID | None = None,
+        vale_id: UUID | None = None,
         status: EstadoCanje | None = None,
+        sucursal_id: UUID | None = None,
     ) -> PaginatedResponse[CanjeResponse]:
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
@@ -185,9 +189,56 @@ class CanjeService:
                 actor_sucursal_id,
             ),
         ]
+        if cliente_id is not None:
+            filters.append(Canje.cliente_id == cliente_id)
+        if dador_id is not None:
+            filters.append(Canje.dador_id == dador_id)
+        if vale_id is not None:
+            filters.append(Canje.vale_id == vale_id)
         if status is not None:
             filters.append(Canje.status == status)
+        if sucursal_id is not None:
+            filters.append(Canje.sucursal_id == sucursal_id)
 
+        total_result = await db_session.execute(
+            select(func.count()).select_from(Canje).where(*filters)
+        )
+        total = int(total_result.scalar_one())
+        result = await db_session.execute(
+            select(Canje)
+            .where(*filters)
+            .order_by(Canje.created_at.desc(), Canje.id)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+        redemptions = list(result.scalars().all())
+        return PaginatedResponse[CanjeResponse](
+            total=total,
+            page=page,
+            per_page=per_page,
+            total_pages=(total + per_page - 1) // per_page,
+            data=redemptions,
+        )
+
+    @staticmethod
+    async def list_for_user(
+        db_session: AsyncSession,
+        user_id: UUID,
+        *,
+        page: int = 1,
+        per_page: int = 20,
+    ) -> PaginatedResponse[CanjeResponse]:
+        if page < 1 or per_page < 1 or per_page > 100:
+            raise AppException(
+                "La paginaciÃ³n indicada no es vÃ¡lida.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+            )
+
+        filters = [
+            Canje.is_deleted.is_(False),
+            or_(Canje.cliente_id == user_id, Canje.dador_id == user_id),
+        ]
         total_result = await db_session.execute(
             select(func.count()).select_from(Canje).where(*filters)
         )
@@ -263,6 +314,40 @@ class CanjeService:
             client.id,
         )
         return redemption
+
+    @staticmethod
+    async def expire_pending(
+        db_session: AsyncSession,
+        actor_id: UUID,
+    ) -> CanjeExpireResponse:
+        now = datetime.now(timezone.utc)
+        statement = (
+            update(Canje)
+            .where(
+                Canje.is_deleted.is_(False),
+                Canje.status == EstadoCanje.PENDIENTE,
+                Canje.expires_at <= now,
+            )
+            .values(
+                status=EstadoCanje.EXPIRADO,
+                updated_at=now,
+                updated_by=actor_id,
+            )
+        )
+        try:
+            result = await db_session.execute(statement)
+            await db_session.commit()
+        except Exception:
+            await db_session.rollback()
+            raise
+
+        expired_count = max(int(result.rowcount or 0), 0)
+        logger.info(
+            "Canjes expirados en lote: total=%s actor_id=%s",
+            expired_count,
+            actor_id,
+        )
+        return CanjeExpireResponse(expired_count=expired_count)
 
     @classmethod
     async def redeem(

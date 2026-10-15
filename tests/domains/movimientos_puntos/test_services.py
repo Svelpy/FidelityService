@@ -6,9 +6,12 @@ import pytest
 
 from app.domains.movimientos_puntos.models import MovimientoPuntos
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
+from app.domains.negocio.models import Negocio
+from app.domains.operacion.models import Operacion
+from app.domains.sucursal.models import Sucursal
 from app.domains.users.models import User
 from app.domains.users.services import UserService
-from app.shared.enums import Genero, Role, TipoMovimiento
+from app.shared.enums import Genero, Role, TipoMovimiento, TipoNegocio
 from app.shared.errors.exceptions import AppException
 
 
@@ -38,6 +41,77 @@ def _movement() -> MovimientoPuntos:
         operacion_id=uuid4(),
         canje_id=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_get_detail_devuelve_relaciones_en_una_consulta() -> None:
+    business = Negocio(nombre="Negocio", tipo=TipoNegocio.SOCIO)
+    branch = Sucursal(nombre="Central", negocio_id=business.id)
+    operation = Operacion(
+        receptor_id=uuid4(),
+        emisor_id=uuid4(),
+        total_compra="100.00",
+        total_puntos=10,
+        config_punto_id=uuid4(),
+        sucursal_id=branch.id,
+    )
+    movement = MovimientoPuntos(
+        usuario_id=operation.receptor_id,
+        tipo_movimiento=TipoMovimiento.ACUMULA,
+        puntos=operation.total_puntos,
+        operacion_id=operation.id,
+        canje_id=None,
+    )
+    result = MagicMock()
+    result.one_or_none.return_value = (
+        movement,
+        None,
+        operation,
+        branch,
+        business,
+    )
+    session = _async_session()
+    session.execute.return_value = result
+
+    detail = await MovimientoPuntosService.get_detail(
+        session,
+        movement.id,
+        uuid4(),
+        Role.ADMIN,
+    )
+
+    assert detail.data.id == movement.id
+    assert detail.canje is None
+    assert detail.operacion is not None
+    assert detail.operacion.id == operation.id
+    assert detail.sucursal is not None
+    assert detail.sucursal.id == branch.id
+    assert detail.negocio is not None
+    assert detail.negocio.id == business.id
+    session.execute.assert_awaited_once()
+    sql = str(session.execute.await_args.args[0].compile())
+    assert sql.count("LEFT OUTER JOIN") == 5
+
+
+@pytest.mark.asyncio
+async def test_get_detail_oculta_movimiento_ajeno_al_cliente() -> None:
+    result = MagicMock()
+    result.one_or_none.return_value = None
+    session = _async_session()
+    session.execute.return_value = result
+    actor_id = uuid4()
+
+    with pytest.raises(AppException) as error:
+        await MovimientoPuntosService.get_detail(
+            session,
+            uuid4(),
+            actor_id,
+            Role.CLIENTE,
+        )
+
+    assert error.value.status_code == 404
+    compiled = session.execute.await_args.args[0].compile()
+    assert actor_id in compiled.params.values()
 
 
 def test_register_accrual_actualiza_saldo_y_agrega_movimiento_sin_commit() -> None:

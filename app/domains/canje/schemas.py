@@ -50,6 +50,14 @@ class CanjeRedeem(BaseModel):
     )
 
 
+class CanjeExpireResponse(BaseModel):
+    expired_count: int = Field(ge=0)
+
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"expired_count": 12}}
+    )
+
+
 class CanjeResponse(BaseModel):
     id: UUID
     cliente_id: UUID

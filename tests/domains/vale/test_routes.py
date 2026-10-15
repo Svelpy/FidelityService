@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -70,18 +70,53 @@ def test_create_acepta_puntos_distintos_a_sugerencia(
     with patch.object(ValeService, "create", new=AsyncMock(return_value=vale)) as service:
         response = client.post(
             "/vales/",
-            json={
+            data={
                 "total_costo": "50.00",
-                "total_puntos": 450,
+                "total_puntos": "450",
                 "nombre": "Vale Bs 50",
                 "categoria_id": str(vale.categoria_id),
                 "negocio_id": str(vale.negocio_id),
             },
+            files={"image": ("vale.png", b"image", "image/png")},
         )
     assert response.status_code == 201
     assert response.json()["total_puntos"] == 450
-    assert service.await_args.kwargs == {"actor_id": current_user.id}
+    assert service.await_args.kwargs == {
+        "actor_id": current_user.id,
+        "image": ANY,
+        "settings": ANY,
+    }
     assert service.await_args.args[0] is db_session
+
+
+def test_update_acepta_campos_e_imagen_en_form_data(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, current_user, db_session = route_context
+    vale = _vale()
+    with patch.object(ValeService, "update", new=AsyncMock(return_value=vale)) as service:
+        response = client.patch(
+            f"/vales/{vale.id}",
+            data={
+                "nombre": "Vale actualizado",
+                "total_puntos": "500",
+                "descripcion": "",
+            },
+            files={"image": ("vale.png", b"image", "image/png")},
+        )
+    assert response.status_code == 200
+    submitted = service.await_args.args[2]
+    assert submitted.model_dump(exclude_unset=True) == {
+        "total_puntos": 500,
+        "nombre": "Vale actualizado",
+        "descripcion": None,
+    }
+    assert service.await_args.kwargs == {
+        "actor_id": current_user.id,
+        "image": ANY,
+        "settings": ANY,
+    }
+    assert service.await_args.args[:2] == (db_session, vale.id)
 
 
 def test_get_delega_al_servicio(

@@ -7,7 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.domains.auth.dependencies import require_permission
 from app.domains.auth.schemas import CurrentUser
-from app.domains.movimientos_puntos.schemas import MovimientoPuntosResponseAudit
+from app.domains.movimientos_puntos.schemas import (
+    MovimientoPuntosDetailResponse,
+    MovimientoPuntosResponseAudit,
+)
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.shared.enums import Action, Module, TipoMovimiento
 from app.shared.schemas.errors import ErrorResponse
@@ -58,7 +61,7 @@ async def list_my_movimientos_puntos(
 
 
 @router.get(
-    "/{usuario_id}",
+    "/usuario/{usuario_id}",
     response_model=PaginatedResponse[MovimientoPuntosResponseAudit],
     summary="Listar movimientos de puntos de un usuario",
     responses=_error_responses(401, 403, 404, 422, 500),
@@ -81,4 +84,26 @@ async def list_movimientos_puntos_by_user_id(
         page=page,
         per_page=per_page,
         movement_type=tipo,
+    )
+
+
+@router.get(
+    "/{movimiento_id}",
+    response_model=MovimientoPuntosDetailResponse,
+    summary="Consultar detalle de un movimiento de puntos",
+    responses=_error_responses(401, 403, 404, 422, 500),
+)
+async def get_movimiento_puntos(
+    movimiento_id: UUID,
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_permission(Module.MOVIMIENTOS_PUNTOS, Action.READ)),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> MovimientoPuntosDetailResponse:
+    return await MovimientoPuntosService.get_detail(
+        db_session,
+        movimiento_id,
+        current_user.id,
+        current_user.role,
     )

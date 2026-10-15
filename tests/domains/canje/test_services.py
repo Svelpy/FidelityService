@@ -61,6 +61,78 @@ def _redemption(**overrides: object) -> Canje:
 
 
 @pytest.mark.asyncio
+async def test_list_aplica_todos_los_filtros_solicitados() -> None:
+    redemption = _redemption(
+        dador_id=uuid4(),
+        status=EstadoCanje.CANJEADO,
+        sucursal_id=uuid4(),
+    )
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 1
+    rows_result = MagicMock()
+    rows_result.scalars.return_value.all.return_value = [redemption]
+    session = _session()
+    session.execute.side_effect = [count_result, rows_result]
+
+    page = await CanjeService.list(
+        session,
+        uuid4(),
+        Role.ADMIN,
+        None,
+        page=1,
+        per_page=10,
+        cliente_id=redemption.cliente_id,
+        dador_id=redemption.dador_id,
+        vale_id=redemption.vale_id,
+        status=redemption.status,
+        sucursal_id=redemption.sucursal_id,
+    )
+
+    assert page.total == 1
+    assert page.data[0].id == redemption.id
+    for call in session.execute.await_args_list:
+        parameters = call.args[0].compile().params.values()
+        assert redemption.cliente_id in parameters
+        assert redemption.dador_id in parameters
+        assert redemption.vale_id in parameters
+        assert redemption.status in parameters
+        assert redemption.sucursal_id in parameters
+
+
+@pytest.mark.asyncio
+async def test_list_for_user_incluye_cliente_o_dador() -> None:
+    user_id = uuid4()
+    redemptions = [
+        _redemption(cliente_id=user_id),
+        _redemption(dador_id=user_id, status=EstadoCanje.CANJEADO, sucursal_id=uuid4()),
+    ]
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 2
+    rows_result = MagicMock()
+    rows_result.scalars.return_value.all.return_value = redemptions
+    session = _session()
+    session.execute.side_effect = [count_result, rows_result]
+
+    page = await CanjeService.list_for_user(
+        session,
+        user_id,
+        page=1,
+        per_page=10,
+    )
+
+    assert page.total == 2
+    assert [item.id for item in page.data] == [item.id for item in redemptions]
+    for call in session.execute.await_args_list:
+        statement = call.args[0]
+        compiled = statement.compile()
+        assert list(compiled.params.values()).count(user_id) == 2
+        sql = str(compiled)
+        assert "canje.cliente_id" in sql
+        assert "canje.dador_id" in sql
+        assert " OR " in sql
+
+
+@pytest.mark.asyncio
 async def test_create_copia_vale_y_no_descuenta_puntos() -> None:
     session = _session()
     client = _client(points=700)
@@ -136,6 +208,26 @@ async def test_create_rechaza_saldo_insuficiente() -> None:
             )
 
     assert error.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_expire_pending_actualiza_vencidos_en_lote() -> None:
+    session = _session()
+    actor_id = uuid4()
+    result = MagicMock()
+    result.rowcount = 4
+    session.execute.return_value = result
+
+    response = await CanjeService.expire_pending(session, actor_id)
+
+    assert response.expired_count == 4
+    session.commit.assert_awaited_once()
+    session.rollback.assert_not_awaited()
+    statement = session.execute.await_args.args[0]
+    compiled = statement.compile()
+    assert EstadoCanje.PENDIENTE in compiled.params.values()
+    assert EstadoCanje.EXPIRADO in compiled.params.values()
+    assert actor_id in compiled.params.values()
 
 
 @pytest.mark.asyncio

@@ -5,10 +5,18 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.domains.canje.models import Canje
 from app.domains.movimientos_puntos.models import MovimientoPuntos
-from app.domains.movimientos_puntos.schemas import MovimientoPuntosResponseAudit
+from app.domains.movimientos_puntos.schemas import (
+    MovimientoPuntosDetailResponse,
+    MovimientoPuntosResponseAudit,
+)
+from app.domains.negocio.models import Negocio
+from app.domains.operacion.models import Operacion
+from app.domains.sucursal.models import Sucursal
 from app.domains.users.models import User
 from app.domains.users.services import UserService
+from app.domains.vale.models import Vale
 from app.shared.enums import Role, TipoMovimiento
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
@@ -25,6 +33,57 @@ class MovimientoPuntosService:
     _ROLES_ALLOWED_TO_QUERY_USERS = frozenset(
         {Role.SUPERADMIN, Role.ADMIN, Role.CAJERO, Role.SOCIO}
     )
+
+    @staticmethod
+    async def get_detail(
+        db_session: AsyncSession,
+        movement_id: UUID,
+        actor_id: UUID,
+        actor_role: Role,
+    ) -> MovimientoPuntosDetailResponse:
+        branch_id = func.coalesce(Canje.sucursal_id, Operacion.sucursal_id)
+        business_id = func.coalesce(Sucursal.negocio_id, Vale.negocio_id)
+        filters = [
+            MovimientoPuntos.id == movement_id,
+            MovimientoPuntos.is_deleted.is_(False),
+        ]
+        if actor_role is Role.CLIENTE:
+            filters.append(MovimientoPuntos.usuario_id == actor_id)
+
+        statement = (
+            select(
+                MovimientoPuntos,
+                Canje,
+                Operacion,
+                Sucursal,
+                Negocio,
+            )
+            .select_from(MovimientoPuntos)
+            .outerjoin(Canje, MovimientoPuntos.canje_id == Canje.id)
+            .outerjoin(Operacion, MovimientoPuntos.operacion_id == Operacion.id)
+            .outerjoin(Sucursal, Sucursal.id == branch_id)
+            .outerjoin(Vale, Vale.id == Canje.vale_id)
+            .outerjoin(Negocio, Negocio.id == business_id)
+            .where(*filters)
+        )
+        result = await db_session.execute(statement)
+        row = result.one_or_none()
+        if row is None:
+            raise AppException(
+                "Movimiento de puntos no encontrado.",
+                404,
+                ErrorCode.RESOURCE_NOT_FOUND,
+            )
+
+        movement, redemption, operation, branch, business = row
+        return MovimientoPuntosDetailResponse(
+            data=movement,
+            canje=redemption,
+            operacion=operation,
+            sucursal=branch,
+            negocio=business,
+        )
+
     @staticmethod
     async def list_for_user(
         db_session: AsyncSession,

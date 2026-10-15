@@ -1,7 +1,8 @@
+from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -30,6 +31,47 @@ ERROR_RESPONSES = {
 
 def _error_responses(*codes: int) -> dict[int, dict[str, object]]:
     return {code: ERROR_RESPONSES[code] for code in codes}
+
+
+async def _parse_vale_create_form(
+    total_costo: Annotated[Decimal, Form()],
+    total_puntos: Annotated[int, Form()],
+    nombre: Annotated[str, Form()],
+    categoria_id: Annotated[UUID, Form()],
+    negocio_id: Annotated[UUID, Form()],
+    descripcion: Annotated[str | None, Form()] = None,
+) -> ValeCreate:
+    return ValeCreate(
+        total_costo=total_costo,
+        total_puntos=total_puntos,
+        nombre=nombre,
+        descripcion=descripcion,
+        categoria_id=categoria_id,
+        negocio_id=negocio_id,
+    )
+
+
+async def _parse_vale_update_form(
+    request: Request,
+    total_costo: Annotated[Decimal | None, Form()] = None,
+    total_puntos: Annotated[int | None, Form()] = None,
+    nombre: Annotated[str | None, Form()] = None,
+    descripcion: Annotated[str | None, Form()] = None,
+    categoria_id: Annotated[UUID | None, Form()] = None,
+    negocio_id: Annotated[UUID | None, Form()] = None,
+) -> ValeUpdate:
+    form = await request.form()
+    parsed_values = {
+        "total_costo": total_costo,
+        "total_puntos": total_puntos,
+        "nombre": nombre,
+        "descripcion": descripcion,
+        "categoria_id": categoria_id,
+        "negocio_id": negocio_id,
+    }
+    return ValeUpdate.model_validate(
+        {field: value for field, value in parsed_values.items() if field in form}
+    )
 
 
 @router.post(
@@ -80,55 +122,28 @@ async def list_vales(
     response_model=ValeResponseAudit,
     status_code=status.HTTP_201_CREATED,
     summary="Crear vale",
-    responses=_error_responses(401, 403, 404, 409, 422, 500),
+    responses=_error_responses(400, 401, 403, 404, 409, 422, 500),
 )
 async def create_vale(
-    data: ValeCreate,
+    data: Annotated[ValeCreate, Depends(_parse_vale_create_form)],
     current_user: Annotated[
         CurrentUser,
         Depends(require_permission(Module.VALE, Action.CREATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> ValeResponseAudit:
-    return await ValeService.create(db_session, data, actor_id=current_user.id)
-
-
-@router.post(
-    "/{vale_id}/image",
-    response_model=ValeResponseAudit,
-    summary="Subir o reemplazar imagen de vale",
-    responses=_error_responses(400, 401, 403, 404, 422, 500),
-)
-async def upload_vale_image(
-    vale_id: UUID,
-    file: Annotated[UploadFile, File(description="Imagen del vale")],
-    current_user: Annotated[
-        CurrentUser,
-        Depends(require_permission(Module.VALE, Action.UPDATE)),
-    ],
-    db_session: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    image: Annotated[
+        UploadFile | None,
+        File(description="Imagen opcional del vale"),
+    ] = None,
 ) -> ValeResponseAudit:
-    return await ValeService.upload_image(
-        db_session, vale_id, file, current_user.id, settings
+    return await ValeService.create(
+        db_session,
+        data,
+        actor_id=current_user.id,
+        image=image,
+        settings=settings,
     )
-
-
-@router.delete(
-    "/{vale_id}/image",
-    response_model=ValeResponseAudit,
-    summary="Eliminar imagen de vale",
-    responses=_error_responses(401, 403, 404, 500),
-)
-async def delete_vale_image(
-    vale_id: UUID,
-    current_user: Annotated[
-        CurrentUser,
-        Depends(require_permission(Module.VALE, Action.UPDATE)),
-    ],
-    db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> ValeResponseAudit:
-    return await ValeService.delete_image(db_session, vale_id, current_user.id)
 
 
 @router.get(
@@ -152,19 +167,29 @@ async def get_vale(
     "/{vale_id}",
     response_model=ValeResponseAudit,
     summary="Actualizar vale",
-    responses=_error_responses(401, 403, 404, 409, 422, 500),
+    responses=_error_responses(400, 401, 403, 404, 409, 422, 500),
 )
 async def update_vale(
     vale_id: UUID,
-    data: ValeUpdate,
+    data: Annotated[ValeUpdate, Depends(_parse_vale_update_form)],
     current_user: Annotated[
         CurrentUser,
         Depends(require_permission(Module.VALE, Action.UPDATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    image: Annotated[
+        UploadFile | None,
+        File(description="Nueva imagen opcional del vale"),
+    ] = None,
 ) -> ValeResponseAudit:
     return await ValeService.update(
-        db_session, vale_id, data, actor_id=current_user.id
+        db_session,
+        vale_id,
+        data,
+        actor_id=current_user.id,
+        image=image,
+        settings=settings,
     )
 
 

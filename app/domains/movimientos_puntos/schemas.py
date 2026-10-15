@@ -29,6 +29,8 @@ class MovimientoPuntosResponse(BaseModel):
                 "puntos": 150,
                 "operacion_id": "33333333-3333-4333-8333-333333333333",
                 "canje_id": None,
+                "created_at": "2026-10-12T14:30:00Z",
+                "updated_at": "2026-10-12T14:30:00Z",
             }
         },
     )

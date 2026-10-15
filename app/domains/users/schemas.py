@@ -283,6 +283,8 @@ class UserResponse(BaseModel):
                 "role": "CLIENTE",
                 "puntos": 150,
                 "sucursal_id": "22222222-2222-4222-8222-222222222222",
+                "created_at": "2026-10-08T14:30:00Z",
+                "updated_at": "2026-10-08T15:00:00Z",
             }
         },
     )

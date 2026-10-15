@@ -103,6 +103,8 @@ class CategoriaResponse(BaseModel):
                 "slug": "gastronomia",
                 "icon_number": 3,
                 "descripcion": "Vales para restaurantes y cafeterías.",
+                "created_at": "2026-10-10T14:30:00Z",
+                "updated_at": "2026-10-10T15:00:00Z",
             }
         },
     )

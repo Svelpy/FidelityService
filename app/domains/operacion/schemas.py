@@ -74,6 +74,8 @@ class OperacionResponse(BaseModel):
                 "config_punto_id": "44444444-4444-4444-8444-444444444444",
                 "sucursal_id": "55555555-5555-4555-8555-555555555555",
                 "referencia": "Factura 000123",
+                "created_at": "2026-10-12T14:30:00Z",
+                "updated_at": "2026-10-12T14:30:00Z",
             }
         },
     )

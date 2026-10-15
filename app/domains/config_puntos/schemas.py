@@ -58,6 +58,8 @@ class ConfigPuntosResponse(BaseModel):
                 "end_date": None,
                 "factor_asignacion_puntos": "0.100000",
                 "factor_costo_vale": "10.000000",
+                "created_at": "2026-10-12T14:30:00Z",
+                "updated_at": "2026-10-12T14:30:00Z",
             }
         },
     )

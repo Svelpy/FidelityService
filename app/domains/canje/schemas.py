@@ -89,6 +89,8 @@ class CanjeResponse(BaseModel):
                 "total_costo": "50.00",
                 "referencia": "Solicitud desde la aplicación móvil",
                 "config_punto_id": "66666666-6666-4666-8666-666666666666",
+                "created_at": "2026-10-12T14:30:00Z",
+                "updated_at": "2026-10-12T14:30:00Z",
             }
         },
     )

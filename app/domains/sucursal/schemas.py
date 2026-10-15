@@ -141,6 +141,8 @@ class SucursalResponse(BaseModel):
                 "direccion": "Av. San Martín 123",
                 "url_ubicacion": "https://maps.google.com/?q=-17.77,-63.20",
                 "telefono": "71234567",
+                "created_at": "2026-10-12T12:00:00Z",
+                "updated_at": "2026-10-12T12:00:00Z",
             }
         },
     )

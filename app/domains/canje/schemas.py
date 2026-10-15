@@ -71,7 +71,8 @@ class CanjeResponse(BaseModel):
     total_costo: Decimal
     referencia: str | None
     config_punto_id: UUID
-
+    created_at: datetime
+    updated_at: datetime
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
@@ -94,9 +95,9 @@ class CanjeResponse(BaseModel):
 
 
 class CanjeResponseAudit(CanjeResponse):
-    created_at: datetime
+    
     created_by: UUID | None
-    updated_at: datetime
+    
     updated_by: UUID | None
     is_deleted: bool
     deleted_at: datetime | None

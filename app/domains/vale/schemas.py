@@ -122,7 +122,8 @@ class ValeResponse(BaseModel):
     image_url: str | None
     categoria_id: UUID
     negocio_id: UUID
-
+    created_at: datetime
+    updated_at: datetime
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
@@ -141,9 +142,8 @@ class ValeResponse(BaseModel):
 
 
 class ValeResponseAudit(ValeResponse):
-    created_at: datetime
+
     created_by: UUID | None
-    updated_at: datetime
     updated_by: UUID | None
     is_deleted: bool
     deleted_at: datetime | None

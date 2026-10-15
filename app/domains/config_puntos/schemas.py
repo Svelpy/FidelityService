@@ -47,7 +47,8 @@ class ConfigPuntosResponse(BaseModel):
     end_date: datetime | None
     factor_asignacion_puntos: Decimal
     factor_costo_vale: Decimal
-
+    created_at: datetime
+    updated_at: datetime
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
@@ -63,9 +64,8 @@ class ConfigPuntosResponse(BaseModel):
 
 
 class ConfigPuntosResponseAudit(ConfigPuntosResponse):
-    created_at: datetime
+
     created_by: UUID | None
-    updated_at: datetime
     updated_by: UUID | None
     is_deleted: bool
     deleted_at: datetime | None

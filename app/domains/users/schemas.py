@@ -264,7 +264,8 @@ class UserResponse(BaseModel):
     role: Role
     puntos: int
     sucursal_id: UUID | None
-
+    created_at: datetime
+    updated_at: datetime
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
@@ -308,9 +309,8 @@ class UserMeResponse(BaseModel):
 
 class UserResponseAudit(UserResponse):
     """Respuesta de usuario completa con datos de auditoría."""
-    created_at: datetime
+
     created_by: UUID | None
-    updated_at: datetime
     updated_by: UUID | None
     is_deleted: bool
     deleted_at: datetime | None

@@ -92,7 +92,8 @@ class CategoriaResponse(BaseModel):
     slug: str
     icon_number: int
     descripcion: str | None
-
+    created_at: datetime
+    updated_at: datetime
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
@@ -108,9 +109,9 @@ class CategoriaResponse(BaseModel):
 
 
 class CategoriaResponseAudit(CategoriaResponse):
-    created_at: datetime
+
     created_by: UUID | None
-    updated_at: datetime
+
     updated_by: UUID | None
     is_deleted: bool
     deleted_at: datetime | None

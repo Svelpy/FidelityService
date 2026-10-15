@@ -60,7 +60,8 @@ class OperacionResponse(BaseModel):
     config_punto_id: UUID
     sucursal_id: UUID
     referencia: str | None
-
+    created_at: datetime
+    updated_at: datetime
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
@@ -79,9 +80,8 @@ class OperacionResponse(BaseModel):
 
 
 class OperacionResponseAudit(OperacionResponse):
-    created_at: datetime
+
     created_by: UUID | None
-    updated_at: datetime
     updated_by: UUID | None
     is_deleted: bool
     deleted_at: datetime | None

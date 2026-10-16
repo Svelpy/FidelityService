@@ -1,6 +1,5 @@
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
-from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -16,15 +15,18 @@ from app.domains.config_puntos.models import ConfigPuntos
 from app.domains.config_puntos.routes import router
 from app.domains.config_puntos.schemas import ConfigPuntosResponse
 from app.domains.config_puntos.services import ConfigPuntosService
-from app.shared.enums import Role
+from app.shared.enums import EstadoConfigPuntos, Role
 from app.shared.schemas.pagination import PaginatedResponse
 
 
 def _config() -> ConfigPuntos:
     return ConfigPuntos(
         start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        factor_asignacion_puntos=Decimal("0.100000"),
-        factor_costo_vale=Decimal("10.000000"),
+        asignacion_bolivianos=100,
+        asignacion_puntos=10,
+        costo_vale_bolivianos=50,
+        costo_vale_puntos=500,
+        status=EstadoConfigPuntos.ACTIVE,
     )
 
 
@@ -109,16 +111,16 @@ def test_replace_devuelve_201_y_delega_operandos(
         response = client.post(
             "/config-puntos/",
             json={
-                "asignacion": {"cant_bs": 100, "cant_puntos": 10},
-                "costo_vale": {"cant_bs": 50, "cant_puntos": 500},
+                "asignacion": {"bolivianos": 100, "puntos": 10},
+                "costo_vale": {"bolivianos": 50, "puntos": 500},
             },
         )
 
     assert response.status_code == 201
     args = service.await_args
     assert args.args[0] is db_session
-    assert args.args[1].asignacion.cant_bs == 100
-    assert args.args[1].costo_vale.cant_puntos == 500
+    assert args.args[1].asignacion.bolivianos == 100
+    assert args.args[1].costo_vale.puntos == 500
     assert args.kwargs == {"actor_id": current_user.id}
 
 
@@ -147,8 +149,8 @@ def test_replace_rechaza_operandos_invalidos(
     response = client.post(
         "/config-puntos/",
         json={
-            "asignacion": {"cant_bs": 0, "cant_puntos": 10},
-            "costo_vale": {"cant_bs": 50, "cant_puntos": 500},
+            "asignacion": {"bolivianos": 0, "puntos": 10},
+            "costo_vale": {"bolivianos": 50, "puntos": 500},
         },
     )
 

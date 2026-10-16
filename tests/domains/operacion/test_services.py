@@ -53,7 +53,8 @@ def _receptor_data() -> UserRegistrationData:
 def test_calculate_points_redondea_hacia_abajo() -> None:
     assert OperacionService._calculate_points(
         Decimal("35.99"),
-        Decimal("0.100000"),
+        100,
+        10,
     ) == 3
 
 
@@ -61,7 +62,8 @@ def test_calculate_points_rechaza_compra_que_no_genera_un_punto() -> None:
     with pytest.raises(AppException) as error:
         OperacionService._calculate_points(
             Decimal("5.00"),
-            Decimal("0.100000"),
+            100,
+            10,
         )
 
     assert error.value.status_code == 422
@@ -74,8 +76,10 @@ async def test_create_registra_operacion_saldo_y_movimiento_atomicamente() -> No
     branch_id = uuid4()
     client = _client(points=20)
     config = ConfigPuntos(
-        factor_asignacion_puntos=Decimal("0.100000"),
-        factor_costo_vale=Decimal("10.000000"),
+        asignacion_bolivianos=100,
+        asignacion_puntos=10,
+        costo_vale_bolivianos=50,
+        costo_vale_puntos=500,
     )
 
     with (
@@ -169,8 +173,10 @@ async def test_create_registra_receptor_cuando_id_es_nulo() -> None:
     new_client = _client(points=0)
     registration_data = _receptor_data()
     config = ConfigPuntos(
-        factor_asignacion_puntos=Decimal("0.100000"),
-        factor_costo_vale=Decimal("10.000000"),
+        asignacion_bolivianos=100,
+        asignacion_puntos=10,
+        costo_vale_bolivianos=50,
+        costo_vale_puntos=500,
     )
 
     with (

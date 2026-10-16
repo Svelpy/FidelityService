@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -11,8 +10,8 @@ from app.domains.config_puntos.models import ConfigPuntos
 from app.domains.config_puntos.schemas import (
     ConfigPuntosCreate,
     ConfigPuntosResponse,
-    FactorPuntosInput,
 )
+from app.shared.enums import EstadoConfigPuntos
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 from app.shared.schemas.pagination import PaginatedResponse
@@ -22,10 +21,7 @@ logger = get_logger(__name__)
 
 
 class ConfigPuntosService:
-    """Versionado y consulta de los factores globales del sistema."""
-
-    _FACTOR_QUANTUM = Decimal("0.000001")
-    _MAX_FACTOR = Decimal("999999999999.999999")
+    """Versionado y consulta de las conversiones globales de puntos."""
 
     @staticmethod
     def _constraint_name(error: IntegrityError) -> str | None:
@@ -57,38 +53,6 @@ class ConfigPuntosService:
             ErrorCode.CONFLICT,
         )
 
-    @classmethod
-    def _calculate_factor(
-        cls,
-        values: FactorPuntosInput,
-        field_name: str,
-    ) -> Decimal:
-        raw_factor = Decimal(values.cant_puntos) / Decimal(values.cant_bs)
-        if raw_factor > cls._MAX_FACTOR:
-            raise AppException(
-                "El factor calculado es demasiado grande.",
-                422,
-                ErrorCode.VALIDATION_ERROR,
-                {
-                    field_name: (
-                        "La división excede el máximo admitido por la base de datos."
-                    )
-                },
-            )
-        factor = raw_factor.quantize(cls._FACTOR_QUANTUM, rounding=ROUND_HALF_UP)
-        if factor <= 0:
-            raise AppException(
-                "El factor calculado es demasiado pequeño.",
-                422,
-                ErrorCode.VALIDATION_ERROR,
-                {
-                    field_name: (
-                        "La división debe producir al menos 0.000001 puntos por Bs."
-                    )
-                },
-            )
-        return factor
-
     @staticmethod
     async def get(
         db_session: AsyncSession,
@@ -117,7 +81,7 @@ class ConfigPuntosService:
         required: bool = True,
     ) -> ConfigPuntos | None:
         statement = select(ConfigPuntos).where(
-            ConfigPuntos.end_date.is_(None),
+            ConfigPuntos.status == EstadoConfigPuntos.ACTIVE,
             ConfigPuntos.is_deleted.is_(False),
         )
         if for_update:
@@ -183,8 +147,6 @@ class ConfigPuntosService:
         data: ConfigPuntosCreate,
         actor_id: UUID,
     ) -> ConfigPuntos:
-        factor_asignacion = cls._calculate_factor(data.asignacion, "asignacion")
-        factor_costo_vale = cls._calculate_factor(data.costo_vale, "costo_vale")
         now = datetime.now(timezone.utc)
         active_config = await cls.get_active(
             db_session,
@@ -194,14 +156,18 @@ class ConfigPuntosService:
 
         if active_config is not None:
             active_config.end_date = now
+            active_config.status = EstadoConfigPuntos.INACTIVE
             active_config.updated_at = now
             active_config.updated_by = actor_id
 
         new_config = ConfigPuntos(
             start_date=now,
             end_date=None,
-            factor_asignacion_puntos=factor_asignacion,
-            factor_costo_vale=factor_costo_vale,
+            asignacion_bolivianos=data.asignacion.bolivianos,
+            asignacion_puntos=data.asignacion.puntos,
+            costo_vale_bolivianos=data.costo_vale.bolivianos,
+            costo_vale_puntos=data.costo_vale.puntos,
+            status=EstadoConfigPuntos.ACTIVE,
             created_at=now,
             created_by=actor_id,
             updated_at=now,

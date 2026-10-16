@@ -33,6 +33,11 @@ class TipoNegocio(str, Enum):
     SOCIO = "SOCIO"
 
 
+class EstadoConfigPuntos(str, Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+
+
 class EstadoCanje(str, Enum):
     PENDIENTE = "PENDIENTE"
     CANJEADO = "CANJEADO"

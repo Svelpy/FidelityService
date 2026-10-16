@@ -133,9 +133,11 @@ class ValeService:
         config = await ConfigPuntosService.get_active(db_session)
         assert config is not None
         suggested = int(
-            (total_costo * config.factor_costo_vale).to_integral_value(
-                rounding=ROUND_CEILING
-            )
+            (
+                total_costo
+                * Decimal(config.costo_vale_puntos)
+                / Decimal(config.costo_vale_bolivianos)
+            ).to_integral_value(rounding=ROUND_CEILING)
         )
         if suggested <= 0 or suggested > cls._MAX_POINTS:
             raise AppException(

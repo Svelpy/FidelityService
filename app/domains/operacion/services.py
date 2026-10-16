@@ -65,8 +65,19 @@ class OperacionService:
         await db_session.refresh(operation)
 
     @classmethod
-    def _calculate_points(cls, total: Decimal, factor: Decimal) -> int:
-        points = int((total * factor).to_integral_value(rounding=ROUND_FLOOR))
+    def _calculate_points(
+        cls,
+        total: Decimal,
+        bolivianos: int,
+        puntos_conversion: int,
+    ) -> int:
+        points = int(
+            (
+                total
+                * Decimal(puntos_conversion)
+                / Decimal(bolivianos)
+            ).to_integral_value(rounding=ROUND_FLOOR)
+        )
         if points <= 0:
             raise AppException(
                 "La compra no alcanza el mínimo necesario para acumular puntos.",
@@ -201,7 +212,8 @@ class OperacionService:
         assert config is not None
         total_points = cls._calculate_points(
             data.total_compra,
-            config.factor_asignacion_puntos,
+            config.asignacion_bolivianos,
+            config.asignacion_puntos,
         )
         now = datetime.now(timezone.utc)
         operation = Operacion(

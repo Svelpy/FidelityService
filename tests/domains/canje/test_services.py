@@ -148,8 +148,10 @@ async def test_create_copia_vale_descuenta_puntos_y_registra_movimiento() -> Non
     )
     config = ConfigPuntos(
         start_date=datetime.now(timezone.utc),
-        factor_asignacion_puntos=Decimal("0.100000"),
-        factor_costo_vale=Decimal("10.000000"),
+        asignacion_bolivianos=100,
+        asignacion_puntos=10,
+        costo_vale_bolivianos=50,
+        costo_vale_puntos=500,
     )
 
     with (

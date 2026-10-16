@@ -45,8 +45,10 @@ def _session() -> MagicMock:
 async def test_suggest_points_redondea_hacia_arriba() -> None:
     config = ConfigPuntos(
         start_date="2026-01-01T00:00:00Z",
-        factor_asignacion_puntos=Decimal("0.100000"),
-        factor_costo_vale=Decimal("3.333333"),
+        asignacion_bolivianos=100,
+        asignacion_puntos=10,
+        costo_vale_bolivianos=3,
+        costo_vale_puntos=10,
     )
     with patch.object(
         ConfigPuntosService, "get_active", new=AsyncMock(return_value=config)
@@ -59,8 +61,10 @@ async def test_suggest_points_redondea_hacia_arriba() -> None:
 async def test_suggest_points_rechaza_resultado_fuera_de_integer() -> None:
     config = ConfigPuntos(
         start_date="2026-01-01T00:00:00Z",
-        factor_asignacion_puntos=Decimal("1.000000"),
-        factor_costo_vale=Decimal("999999999999.999999"),
+        asignacion_bolivianos=1,
+        asignacion_puntos=1,
+        costo_vale_bolivianos=1,
+        costo_vale_puntos=999_999_999_999,
     )
     with patch.object(
         ConfigPuntosService, "get_active", new=AsyncMock(return_value=config)

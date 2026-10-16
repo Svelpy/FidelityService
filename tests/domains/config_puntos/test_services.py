@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -9,9 +8,10 @@ from sqlalchemy.exc import IntegrityError
 from app.domains.config_puntos.models import ConfigPuntos
 from app.domains.config_puntos.schemas import (
     ConfigPuntosCreate,
-    FactorPuntosInput,
+    ConversionPuntosInput,
 )
 from app.domains.config_puntos.services import ConfigPuntosService
+from app.shared.enums import EstadoConfigPuntos
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 
@@ -20,8 +20,11 @@ def _config(**overrides: object) -> ConfigPuntos:
     values: dict[str, object] = {
         "start_date": datetime(2026, 1, 1, tzinfo=timezone.utc),
         "end_date": None,
-        "factor_asignacion_puntos": Decimal("0.100000"),
-        "factor_costo_vale": Decimal("10.000000"),
+        "asignacion_bolivianos": 100,
+        "asignacion_puntos": 10,
+        "costo_vale_bolivianos": 50,
+        "costo_vale_puntos": 500,
+        "status": EstadoConfigPuntos.ACTIVE,
     }
     values.update(overrides)
     return ConfigPuntos(**values)
@@ -29,8 +32,8 @@ def _config(**overrides: object) -> ConfigPuntos:
 
 def _create_data() -> ConfigPuntosCreate:
     return ConfigPuntosCreate(
-        asignacion=FactorPuntosInput(cant_bs=100, cant_puntos=10),
-        costo_vale=FactorPuntosInput(cant_bs=50, cant_puntos=500),
+        asignacion=ConversionPuntosInput(bolivianos=100, puntos=10),
+        costo_vale=ConversionPuntosInput(bolivianos=50, puntos=500),
     )
 
 
@@ -41,37 +44,6 @@ def _session() -> MagicMock:
     session.rollback = AsyncMock()
     session.refresh = AsyncMock()
     return session
-
-
-def test_calculate_factor_divide_puntos_entre_bs_y_redondea() -> None:
-    factor = ConfigPuntosService._calculate_factor(
-        FactorPuntosInput(cant_bs=3, cant_puntos=1),
-        "asignacion",
-    )
-
-    assert factor == Decimal("0.333333")
-
-
-def test_calculate_factor_rechaza_resultado_que_redondea_a_cero() -> None:
-    with pytest.raises(AppException) as error:
-        ConfigPuntosService._calculate_factor(
-            FactorPuntosInput(cant_bs=2_147_483_647, cant_puntos=1),
-            "asignacion",
-        )
-
-    assert error.value.status_code == 422
-    assert "asignacion" in error.value.details
-
-
-def test_calculate_factor_rechaza_resultado_que_excede_numeric() -> None:
-    with pytest.raises(AppException) as error:
-        ConfigPuntosService._calculate_factor(
-            FactorPuntosInput(cant_bs=1, cant_puntos=1_000_000_000_000),
-            "costo_vale",
-        )
-
-    assert error.value.status_code == 422
-    assert "costo_vale" in error.value.details
 
 
 @pytest.mark.asyncio
@@ -142,8 +114,11 @@ async def test_replace_crea_primera_configuracion_con_factores_calculados() -> N
             actor_id,
         )
 
-    assert config.factor_asignacion_puntos == Decimal("0.100000")
-    assert config.factor_costo_vale == Decimal("10.000000")
+    assert config.asignacion_bolivianos == 100
+    assert config.asignacion_puntos == 10
+    assert config.costo_vale_bolivianos == 50
+    assert config.costo_vale_puntos == 500
+    assert config.status is EstadoConfigPuntos.ACTIVE
     assert config.created_by == actor_id
     assert config.updated_by == actor_id
     session.add.assert_called_once_with(config)
@@ -169,6 +144,7 @@ async def test_replace_cierra_configuracion_anterior() -> None:
         )
 
     assert active_config.end_date == new_config.start_date
+    assert active_config.status is EstadoConfigPuntos.INACTIVE
     assert active_config.updated_at == new_config.start_date
     assert active_config.updated_by == actor_id
     assert new_config.end_date is None

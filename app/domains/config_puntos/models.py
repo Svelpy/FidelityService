@@ -1,32 +1,33 @@
 from datetime import datetime
-from decimal import Decimal
-
-from sqlalchemy import CheckConstraint, DateTime, Index, Numeric, text
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, Enum as SQLAlchemyEnum
+from sqlalchemy import Index, text
 from sqlmodel import Field
 
 from app.core.base_model import BaseModel
+from app.shared.enums import EstadoConfigPuntos
 
 
 class ConfigPuntos(BaseModel, table=True):
     __tablename__ = "config_puntos"
     __table_args__ = (
         CheckConstraint(
-            "factor_asignacion_puntos > 0",
-            name="ck_config_puntos_factor_asignacion_positivo",
+            "asignacion_bolivianos > 0 AND asignacion_puntos > 0",
+            name="ck_config_puntos_asignacion_positiva",
         ),
         CheckConstraint(
-            "factor_costo_vale > 0",
-            name="ck_config_puntos_factor_costo_positivo",
+            "costo_vale_bolivianos > 0 AND costo_vale_puntos > 0",
+            name="ck_config_puntos_costo_vale_positivo",
         ),
         CheckConstraint(
-            "end_date IS NULL OR end_date > start_date",
+            "(status = 'ACTIVE' AND end_date IS NULL) OR "
+            "(status = 'INACTIVE' AND end_date > start_date)",
             name="ck_config_puntos_rango_fechas",
         ),
         Index(
             "uq_config_puntos_activa",
             text("(true)"),
             unique=True,
-            postgresql_where=text("end_date IS NULL AND is_deleted = false"),
+            postgresql_where=text("status = 'ACTIVE' AND is_deleted = false"),
         ),
         {"schema": "public"},
     )
@@ -40,11 +41,29 @@ class ConfigPuntos(BaseModel, table=True):
         sa_type=DateTime(timezone=True),
         nullable=True,
     )
-    factor_asignacion_puntos: Decimal = Field(
-        sa_type=Numeric(18, 6),
+    asignacion_bolivianos: int = Field(
+        sa_type=BigInteger,
         nullable=False,
     )
-    factor_costo_vale: Decimal = Field(
-        sa_type=Numeric(18, 6),
+    asignacion_puntos: int = Field(
+        sa_type=BigInteger,
+        nullable=False,
+    )
+    costo_vale_bolivianos: int = Field(
+        sa_type=BigInteger,
+        nullable=False,
+    )
+    costo_vale_puntos: int = Field(
+        sa_type=BigInteger,
+        nullable=False,
+    )
+    status: EstadoConfigPuntos = Field(
+        default=EstadoConfigPuntos.ACTIVE,
+        sa_type=SQLAlchemyEnum(
+            EstadoConfigPuntos,
+            name="estado_config_puntos",
+            native_enum=False,
+            create_constraint=True,
+        ),
         nullable=False,
     )

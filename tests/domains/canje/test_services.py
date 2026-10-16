@@ -374,7 +374,7 @@ async def test_redeem_rechaza_sucursal_de_otro_negocio() -> None:
 
 @pytest.mark.parametrize(
     "role",
-    [Role.SUPERADMIN, Role.ADMIN, Role.CAJERO, Role.SOCIO],
+    [Role.SUPERADMIN, Role.OWNER, Role.ADMIN, Role.CAJERO, Role.SOCIO],
 )
 @pytest.mark.asyncio
 async def test_cancel_permite_roles_autorizados_en_canje_pendiente(

@@ -32,7 +32,7 @@ class MovimientoPuntosService:
 
     _MAX_USER_POINTS = 2_147_483_647
     _ROLES_ALLOWED_TO_QUERY_USERS = frozenset(
-        {Role.SUPERADMIN, Role.ADMIN, Role.CAJERO, Role.SOCIO}
+        {Role.SUPERADMIN, Role.ADMIN, Role.CAJERO, Role.SOCIO, Role.OWNER}
     )
 
     @staticmethod

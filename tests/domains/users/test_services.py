@@ -59,7 +59,10 @@ def test_roles_operativos_requieren_sucursal(role: Role) -> None:
     assert error.value.status_code == 422
 
 
-@pytest.mark.parametrize("role", [Role.CLIENTE, Role.ADMIN, Role.SUPERADMIN])
+@pytest.mark.parametrize(
+    "role",
+    [Role.CLIENTE, Role.ADMIN, Role.OWNER, Role.SUPERADMIN],
+)
 def test_roles_globales_no_requieren_sucursal(role: Role) -> None:
     UserService._validate_required_sucursal(role, None)
 
@@ -67,6 +70,26 @@ def test_roles_globales_no_requieren_sucursal(role: Role) -> None:
 def test_admin_no_puede_administrar_un_rol_del_mismo_nivel() -> None:
     with pytest.raises(AppException) as error:
         UserService._validate_can_manage_role(Role.ADMIN, Role.ADMIN)
+
+    assert error.value.status_code == 403
+    assert error.value.code == ErrorCode.PERMISSION_DENIED
+
+
+def test_superadmin_puede_administrar_owner() -> None:
+    UserService._validate_can_manage_role(Role.SUPERADMIN, Role.OWNER)
+
+
+@pytest.mark.parametrize("target_role", [Role.ADMIN, Role.CAJERO, Role.SOCIO, Role.CLIENTE])
+def test_owner_puede_administrar_roles_inferiores(target_role: Role) -> None:
+    UserService._validate_can_manage_role(Role.OWNER, target_role)
+
+
+@pytest.mark.parametrize("target_role", [Role.SUPERADMIN, Role.OWNER])
+def test_owner_no_puede_administrar_su_nivel_o_superior(
+    target_role: Role,
+) -> None:
+    with pytest.raises(AppException) as error:
+        UserService._validate_can_manage_role(Role.OWNER, target_role)
 
     assert error.value.status_code == 403
     assert error.value.code == ErrorCode.PERMISSION_DENIED

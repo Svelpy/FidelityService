@@ -28,7 +28,7 @@ class OperacionService:
 
     _MAX_POINTS = 2_147_483_647
     _ROLES_WITH_GLOBAL_OPERATION_VISIBILITY = frozenset(
-        {Role.SUPERADMIN, Role.ADMIN}
+        {Role.SUPERADMIN, Role.ADMIN, Role.OWNER}
     )
 
     @staticmethod

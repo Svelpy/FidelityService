@@ -47,7 +47,8 @@ class UserService:
         Role.SOCIO: 2,
         Role.CAJERO: 3,
         Role.ADMIN: 4,
-        Role.SUPERADMIN: 5,
+        Role.OWNER: 5,
+        Role.SUPERADMIN: 6,
     }
 
     @classmethod

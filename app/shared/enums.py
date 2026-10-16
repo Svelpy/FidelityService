@@ -2,6 +2,7 @@ from enum import Enum
 
 class Role(str, Enum):
     SUPERADMIN = "SUPERADMIN"
+    OWNER = "OWNER"
     ADMIN = "ADMIN"
     CAJERO = "CAJERO"
     CLIENTE = "CLIENTE"

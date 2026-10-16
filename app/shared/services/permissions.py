@@ -22,8 +22,12 @@ ROLE_PERMISSIONS: dict[Role, dict[Module, set[Action]]] = {
         **{module: ALL_ACTIONS for module in Module},
         Module.MOVIMIENTOS_PUNTOS: SOLO_LECTURA,
     },
+    Role.OWNER: {
+        **{module: ALL_ACTIONS for module in Module},
+        Module.MOVIMIENTOS_PUNTOS: SOLO_LECTURA,
+    },
     Role.ADMIN: {
-        **{module: SIN_ELIMINAR for module in Module},
+        **{module: ALL_ACTIONS for module in Module},
         Module.MOVIMIENTOS_PUNTOS: SOLO_LECTURA,
     },
     Role.CAJERO: {

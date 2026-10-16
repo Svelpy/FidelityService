@@ -5,8 +5,11 @@ from app.domains.negocio.schemas import (
     NegocioCreate,
     NegocioResponse,
     NegocioResponseAudit,
+    NegocioSucursalesResponse,
+    NegocioSucursalesResponseAudit,
     NegocioUpdate,
 )
+from app.domains.sucursal.schemas import SucursalResponse, SucursalResponseAudit
 from app.shared.enums import TipoNegocio
 
 
@@ -64,3 +67,23 @@ def test_negocio_responses_incluyen_ejemplos_json_schema() -> None:
     assert response_example["image_url"].startswith("https://res.cloudinary.com/")
     assert audit_example["created_by"] == "22222222-2222-4222-8222-222222222222"
     assert audit_example["is_deleted"] is False
+
+
+def test_negocio_sucursales_response_incluye_ejemplo_valido() -> None:
+    example = NegocioSucursalesResponse.model_json_schema()["example"]
+
+    response = NegocioSucursalesResponse.model_validate(example)
+
+    assert isinstance(response.negocio, NegocioResponse)
+    assert isinstance(response.sucursales[0], SucursalResponse)
+
+
+def test_negocio_sucursales_response_audit_incluye_ejemplo_valido() -> None:
+    example = NegocioSucursalesResponseAudit.model_json_schema()["example"]
+
+    response = NegocioSucursalesResponseAudit.model_validate(example)
+
+    assert isinstance(response.negocio, NegocioResponseAudit)
+    assert isinstance(response.sucursales[0], SucursalResponseAudit)
+    assert response.negocio.is_deleted is False
+    assert response.sucursales[0].is_deleted is False

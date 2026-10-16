@@ -10,8 +10,9 @@ from app.domains.auth.dependencies import require_permission
 from app.domains.auth.schemas import CurrentUser
 from app.domains.negocio.schemas import (
     NegocioCreate,
-    NegocioResponse,
     NegocioResponseAudit,
+    NegocioSucursalesResponse,
+    NegocioSucursalesResponseAudit,
     NegocioUpdate,
 )
 from app.domains.negocio.services import NegocioService
@@ -39,7 +40,7 @@ def _error_responses(*status_codes: int) -> dict[int, dict[str, object]]:
 
 @router.get(
     "/",
-    response_model=PaginatedResponse[NegocioResponse],
+    response_model=PaginatedResponse[NegocioSucursalesResponse],
     summary="Listar negocios",
     responses=_error_responses(401, 403, 422, 500),
 )
@@ -52,7 +53,7 @@ async def list_negocios(
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
     tipo: Annotated[TipoNegocio | None, Query()] = None,
-) -> PaginatedResponse[NegocioResponse]:
+) -> PaginatedResponse[NegocioSucursalesResponse]:
     return await NegocioService.list(
         db_session,
         page=page,
@@ -131,7 +132,7 @@ async def delete_negocio_image(
 
 @router.get(
     "/{negocio_id}",
-    response_model=NegocioResponseAudit,
+    response_model=NegocioSucursalesResponseAudit,
     summary="Consultar negocio",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -142,8 +143,8 @@ async def get_negocio(
         Depends(require_permission(Module.NEGOCIO, Action.READ)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> NegocioResponseAudit:
-    return await NegocioService.get(db_session, negocio_id)
+) -> NegocioSucursalesResponseAudit:
+    return await NegocioService.get_with_sucursales(db_session, negocio_id)
 
 
 @router.patch(

@@ -2,18 +2,21 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.config import Settings
 from app.core.logging import get_logger
 from app.domains.negocio.models import Negocio
 from app.domains.negocio.schemas import (
     NegocioCreate,
-    NegocioResponse,
+    NegocioSucursalesResponse,
+    NegocioSucursalesResponseAudit,
     NegocioUpdate,
 )
+from app.domains.sucursal.models import Sucursal
 from app.integrations.cloudinary import CloudinaryService
 from app.shared.enums import TipoNegocio
 from app.shared.errors.codes import ErrorCode
@@ -185,6 +188,46 @@ class NegocioService:
             )
         return negocio
 
+    @classmethod
+    async def get_with_sucursales(
+        cls,
+        db_session: AsyncSession,
+        negocio_id: UUID,
+    ) -> NegocioSucursalesResponseAudit:
+        result = await db_session.execute(
+            select(Negocio, Sucursal)
+            .outerjoin(
+                Sucursal,
+                and_(
+                    Sucursal.negocio_id == Negocio.id,
+                    Sucursal.is_deleted.is_(False),
+                ),
+            )
+            .where(
+                Negocio.id == negocio_id,
+                Negocio.is_deleted.is_(False),
+            )
+            .order_by(Sucursal.nombre, Sucursal.id)
+        )
+        rows = result.all()
+        if not rows:
+            raise AppException(
+                "Negocio no encontrado.",
+                404,
+                ErrorCode.RESOURCE_NOT_FOUND,
+            )
+
+        negocio = rows[0][0]
+        sucursales = [
+            sucursal
+            for _, sucursal in rows
+            if sucursal is not None
+        ]
+        return NegocioSucursalesResponseAudit(
+            negocio=negocio,
+            sucursales=sucursales,
+        )
+
     @staticmethod
     async def list(
         db_session: AsyncSession,
@@ -193,7 +236,7 @@ class NegocioService:
         per_page: int = 20,
         tipo: TipoNegocio | None = None,
         include_deleted: bool = False,
-    ) -> PaginatedResponse[NegocioResponse]:
+    ) -> PaginatedResponse[NegocioSucursalesResponse]:
         if page < 1:
             raise AppException(
                 "La página debe ser mayor o igual a 1.",
@@ -213,26 +256,62 @@ class NegocioService:
         if tipo is not None:
             filters.append(Negocio.tipo == tipo)
 
-        total_result = await db_session.execute(
-            select(func.count()).select_from(Negocio).where(*filters)
+        total_query = (
+            select(func.count().label("total"))
+            .select_from(Negocio)
+            .where(*filters)
+            .cte("negocio_total")
         )
-        total = int(total_result.scalar_one())
-
-        result = await db_session.execute(
+        page_query = (
             select(Negocio)
             .where(*filters)
             .order_by(Negocio.nombre, Negocio.id)
             .offset((page - 1) * per_page)
             .limit(per_page)
+            .cte("negocio_page")
         )
-        negocios = list(result.scalars().all())
+        negocio_page = aliased(Negocio, page_query)
+        result = await db_session.execute(
+            select(total_query.c.total, negocio_page, Sucursal)
+            .select_from(total_query)
+            .outerjoin(page_query, true())
+            .outerjoin(
+                Sucursal,
+                and_(
+                    Sucursal.negocio_id == page_query.c.id,
+                    Sucursal.is_deleted.is_(False),
+                ),
+            )
+            .order_by(
+                page_query.c.nombre,
+                page_query.c.id,
+                Sucursal.nombre,
+                Sucursal.id,
+            )
+        )
+
+        total = 0
+        data_por_negocio: dict[UUID, NegocioSucursalesResponse] = {}
+        for row_total, negocio, sucursal in result.all():
+            total = int(row_total)
+            if negocio is None:
+                continue
+            if negocio.id not in data_por_negocio:
+                data_por_negocio[negocio.id] = NegocioSucursalesResponse(
+                    negocio=negocio,
+                    sucursales=[],
+                )
+            if sucursal is not None:
+                data_por_negocio[negocio.id].sucursales.append(sucursal)
+
+        data = list(data_por_negocio.values())
         total_pages = (total + per_page - 1) // per_page
-        return PaginatedResponse[NegocioResponse](
+        return PaginatedResponse[NegocioSucursalesResponse](
             total=total,
             page=page,
             per_page=per_page,
             total_pages=total_pages,
-            data=negocios,
+            data=data,
         )
 
     @classmethod

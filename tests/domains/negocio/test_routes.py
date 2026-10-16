@@ -13,8 +13,12 @@ from app.domains.auth.dependencies import get_current_principal
 from app.domains.auth.schemas import CurrentUser
 from app.domains.negocio.models import Negocio
 from app.domains.negocio.routes import router
-from app.domains.negocio.schemas import NegocioResponse
+from app.domains.negocio.schemas import (
+    NegocioSucursalesResponse,
+    NegocioSucursalesResponseAudit,
+)
 from app.domains.negocio.services import NegocioService
+from app.domains.sucursal.models import Sucursal
 from app.shared.enums import Role, TipoNegocio
 from app.shared.schemas.pagination import PaginatedResponse
 
@@ -26,6 +30,14 @@ def _negocio() -> Negocio:
         descripcion="Cafetería artesanal.",
         telefono="71234567",
         image_url=None,
+    )
+
+
+def _sucursal(negocio_id: UUID) -> Sucursal:
+    return Sucursal(
+        nombre="Sucursal Equipetrol",
+        negocio_id=negocio_id,
+        direccion="Av. San Martín 123",
     )
 
 
@@ -59,12 +71,18 @@ def route_context() -> tuple[TestClient, CurrentUser, MagicMock]:
 def test_list_negocios_delega_filtros(route_context: tuple[TestClient, CurrentUser, MagicMock]) -> None:
     client, _, db_session = route_context
     negocio = _negocio()
-    page = PaginatedResponse[NegocioResponse](
+    sucursal = _sucursal(negocio.id)
+    page = PaginatedResponse[NegocioSucursalesResponse](
         total=1,
         page=1,
         per_page=10,
         total_pages=1,
-        data=[negocio],
+        data=[
+            NegocioSucursalesResponse(
+                negocio=negocio,
+                sucursales=[sucursal],
+            )
+        ],
     )
 
     with patch.object(
@@ -75,7 +93,10 @@ def test_list_negocios_delega_filtros(route_context: tuple[TestClient, CurrentUs
         response = client.get("/negocios/?page=1&per_page=10&tipo=SOCIO")
 
     assert response.status_code == 200
-    assert response.json()["data"][0]["tipo"] == "SOCIO"
+    assert response.json()["data"][0]["negocio"]["tipo"] == "SOCIO"
+    assert response.json()["data"][0]["sucursales"][0]["id"] == str(
+        sucursal.id
+    )
     service.assert_awaited_once_with(
         db_session,
         page=1,
@@ -109,16 +130,22 @@ def test_create_negocio_devuelve_201(route_context: tuple[TestClient, CurrentUse
 def test_get_negocio_devuelve_detalle(route_context: tuple[TestClient, CurrentUser, MagicMock]) -> None:
     client, _, db_session = route_context
     negocio = _negocio()
+    sucursal = _sucursal(negocio.id)
+    detail = NegocioSucursalesResponseAudit(
+        negocio=negocio,
+        sucursales=[sucursal],
+    )
 
     with patch.object(
         NegocioService,
-        "get",
-        new=AsyncMock(return_value=negocio),
+        "get_with_sucursales",
+        new=AsyncMock(return_value=detail),
     ) as service:
         response = client.get(f"/negocios/{negocio.id}")
 
     assert response.status_code == 200
-    assert response.json()["nombre"] == negocio.nombre
+    assert response.json()["negocio"]["nombre"] == negocio.nombre
+    assert response.json()["sucursales"][0]["nombre"] == sucursal.nombre
     service.assert_awaited_once_with(db_session, negocio.id)
 
 

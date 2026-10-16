@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.domains.sucursal.schemas import SucursalResponse, SucursalResponseAudit
 from app.shared.enums import TipoNegocio
 from app.shared.services.validators import (
     validator_non_empty_text,
@@ -111,7 +112,8 @@ class NegocioResponse(BaseModel):
     descripcion: str | None
     telefono: str | None
     image_url: str | None
-
+    created_at: datetime
+    updated_at: datetime
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
@@ -122,15 +124,15 @@ class NegocioResponse(BaseModel):
                 "descripcion": "Cafetería y pastelería artesanal.",
                 "telefono": "71234567",
                 "image_url": "https://res.cloudinary.com/demo/image/upload/negocios/cafe.jpg",
+                "created_at": "2026-10-11T14:30:00Z",
+                "updated_at": "2026-10-11T15:00:00Z",
             }
         },
     )
 
 
 class NegocioResponseAudit(NegocioResponse):
-    created_at: datetime
     created_by: UUID | None
-    updated_at: datetime
     updated_by: UUID | None
     is_deleted: bool
     deleted_at: datetime | None
@@ -153,6 +155,40 @@ class NegocioResponseAudit(NegocioResponse):
                 "is_deleted": False,
                 "deleted_at": None,
                 "deleted_by": None,
+            }
+        },
+    )
+
+
+class NegocioSucursalesResponse(BaseModel):
+    negocio: NegocioResponse
+    sucursales: list[SucursalResponse]
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "negocio": NegocioResponse.model_json_schema()["example"],
+                "sucursales": [
+                    SucursalResponse.model_json_schema()["example"]
+                ],
+            }
+        },
+    )
+
+
+class NegocioSucursalesResponseAudit(NegocioSucursalesResponse):
+    negocio: NegocioResponseAudit
+    sucursales: list[SucursalResponseAudit]
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "negocio": NegocioResponseAudit.model_json_schema()["example"],
+                "sucursales": [
+                    SucursalResponseAudit.model_json_schema()["example"]
+                ],
             }
         },
     )

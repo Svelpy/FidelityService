@@ -8,6 +8,7 @@ from app.core.config import Settings
 from app.domains.negocio.models import Negocio
 from app.domains.negocio.schemas import NegocioCreate, NegocioUpdate
 from app.domains.negocio.services import NegocioService
+from app.domains.sucursal.models import Sucursal
 from app.integrations.cloudinary import CloudinaryService
 from app.shared.enums import TipoNegocio
 from app.shared.errors.exceptions import AppException
@@ -56,12 +57,11 @@ async def test_get_rechaza_negocio_inexistente() -> None:
 @pytest.mark.asyncio
 async def test_list_devuelve_paginacion() -> None:
     negocio = _negocio()
-    count_result = MagicMock()
-    count_result.scalar_one.return_value = 1
-    rows_result = MagicMock()
-    rows_result.scalars.return_value.all.return_value = [negocio]
+    sucursal = Sucursal(nombre="Central", negocio_id=negocio.id)
+    result = MagicMock()
+    result.all.return_value = [(1, negocio, sucursal)]
     session = _session()
-    session.execute.side_effect = [count_result, rows_result]
+    session.execute.return_value = result
 
     page = await NegocioService.list(
         session,
@@ -72,8 +72,61 @@ async def test_list_devuelve_paginacion() -> None:
 
     assert page.total == 1
     assert page.total_pages == 1
-    assert page.data[0].id == negocio.id
-    assert page.data[0].tipo is TipoNegocio.SOCIO
+    assert page.data[0].negocio.id == negocio.id
+    assert page.data[0].negocio.tipo is TipoNegocio.SOCIO
+    assert page.data[0].sucursales[0].id == sucursal.id
+    session.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_list_con_pagina_vacia_conserva_el_total() -> None:
+    result = MagicMock()
+    result.all.return_value = [(2, None, None)]
+    session = _session()
+    session.execute.return_value = result
+
+    page = await NegocioService.list(session, page=2, per_page=2)
+
+    assert page.total == 2
+    assert page.total_pages == 1
+    assert page.data == []
+    session.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_with_sucursales_devuelve_detalle_auditado() -> None:
+    negocio = _negocio()
+    sucursal = Sucursal(nombre="Central", negocio_id=negocio.id)
+    result = MagicMock()
+    result.all.return_value = [(negocio, sucursal)]
+    session = _session()
+    session.execute.return_value = result
+
+    detail = await NegocioService.get_with_sucursales(
+        session,
+        negocio.id,
+    )
+
+    assert detail.negocio.id == negocio.id
+    assert detail.sucursales[0].id == sucursal.id
+    assert detail.negocio.is_deleted is False
+    assert detail.sucursales[0].is_deleted is False
+    session.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_with_sucursales_incluye_negocio_sin_sucursales() -> None:
+    negocio = _negocio()
+    result = MagicMock()
+    result.all.return_value = [(negocio, None)]
+    session = _session()
+    session.execute.return_value = result
+
+    detail = await NegocioService.get_with_sucursales(session, negocio.id)
+
+    assert detail.negocio.id == negocio.id
+    assert detail.sucursales == []
+    session.execute.assert_awaited_once()
 
 
 @pytest.mark.asyncio

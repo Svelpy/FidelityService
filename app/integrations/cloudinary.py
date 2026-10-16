@@ -7,6 +7,7 @@ from fastapi import UploadFile
 from app.core.config import Settings
 from app.core.logging import get_logger
 from app.shared.errors.exceptions import AppException
+from app.shared.errors.codes import ErrorCode
 
 logger = get_logger(__name__)
 MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
@@ -56,19 +57,19 @@ class CloudinaryService:
         """
         # Validar Content-Type
         if not file.content_type or not file.content_type.startswith("image/"):
-            raise AppException("El archivo debe ser una imagen", 400)
+            raise AppException("El archivo debe ser una imagen", 400,code=ErrorCode.INVALID_IMAGE)
         
         # Bloquear SVG explícitamente
         filename = file.filename or ""
         if file.content_type == "image/svg+xml" or filename.lower().endswith(".svg"):
-            raise AppException("Los archivos SVG no están permitidos", 400)
+            raise AppException("Los archivos SVG no están permitidos", 400, code=ErrorCode.INVALID_IMAGE)
             
         # Leer archivo
         content = await file.read()
         
         try:
             if len(content) > MAX_IMAGE_SIZE:
-                raise AppException("La imagen no puede pesar más de 5MB", 400)
+                raise AppException("La imagen no puede pesar más de 5MB", 400, code=ErrorCode.INVALID_IMAGE)
             cloudinary_folder= f"{settings.CLOUDINARY_FOLDER_NAME}/{folder}"
             # El SDK de Cloudinary es síncrono.
             response = await asyncio.to_thread(

@@ -21,9 +21,9 @@ def validator_phone(value: object) -> str:
     if not isinstance(value, str):
         raise ValueError("El número de teléfono debe ser texto.")
     normalized_phone = value.strip()
-    if not re.fullmatch(r"\d{6,20}", normalized_phone):
+    if not re.fullmatch(r"(?:\d{6,20}|\+\d{6,19})", normalized_phone):
         raise ValueError(
-            "El número de teléfono debe tener entre 6 y 20 dígitos."
+            "El teléfono debe contener entre 6 y 20 dígitos, o comenzar con + seguido de entre 6 y 19 dígitos."
         )
     return normalized_phone
 

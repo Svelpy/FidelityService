@@ -1,5 +1,6 @@
 import time
 import traceback
+from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -15,6 +16,33 @@ from app.domains.error_logs.models import ErrorLog
 
 logger = get_logger(__name__)
 
+def _translate_validation_message(error: dict[str, Any]) -> str:
+    error_type = error.get("type", "")
+    context = error.get("ctx") or {}
+    if error_type == "value_error":
+        original_error = context.get("error")
+        if original_error is not None:
+            return str(original_error)
+        return str(error.get("msg", "")).removeprefix("Value error, ")
+
+    translations = {
+        "uuid_parsing": "El valor debe ser un identificador UUID válido.",
+        "uuid_type": "El valor debe ser un identificador UUID válido.",
+        "missing": "Este campo es obligatorio.",
+        "greater_than": (f"El valor debe ser mayor que {context.get('gt')}."),
+        "greater_than_equal": (f"El valor debe ser mayor o igual que {context.get('ge')}."),
+        "less_than": (f"El valor debe ser menor que {context.get('lt')}."),
+        "less_than_equal": (f"El valor debe ser menor o igual que {context.get('le')}."),
+        "int_parsing": "El valor debe ser un número entero válido.",
+        "float_parsing": "El valor debe ser un número válido.",
+        "decimal_parsing": "El valor debe ser un número decimal válido.",
+        "string_type": "El valor debe ser texto.",
+        "string_too_short": (f"El texto debe contener al menos {context.get('min_length')} caracteres."        ),
+        "string_too_long": (f"El texto no debe superar {context.get('max_length')} caracteres."        ),
+        "decimal_max_places": (f"El importe no debe tener más de {context.get('decimal_places')} decimales."),
+    }
+
+    return translations.get(error_type, str(error.get("msg", "")))
 
 def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
     """Registra los handlers globales de errores."""
@@ -41,7 +69,7 @@ def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
         errors_details = {
             " -> ".join(str(x) for x in error["loc"][1:])
             if len(error["loc"]) > 1
-            else str(error["loc"][0]): error["msg"]
+            else str(error["loc"][0]): _translate_validation_message(error)
             for error in exc.errors()
         }
 

@@ -14,8 +14,8 @@ class SucursalCreate(BaseModel):
     nombre: str = Field(min_length=1, max_length=60)
     negocio_id: UUID =Field(...)
     direccion: str | None = Field(default=None, min_length=1, max_length=255)
-    url_ubicacion: str | None = Field(default=None, min_length=1, max_length=2048)
-    telefono: str | None = Field(default=None, min_length=6, max_length=20)
+    url_ubicacion: str | None = Field(default=None, min_length=1, max_length=2048, pattern=r"^https?://.+$")
+    telefono: str | None = Field(default=None, min_length=6, max_length=20, pattern=r"^(?:\d{6,20}|\+\d{6,19})$")
 
     @field_validator("nombre", mode="before")
     @classmethod
@@ -70,8 +70,8 @@ class SucursalUpdate(BaseModel):
     nombre: str | None = Field(default=None, min_length=1, max_length=60)
     negocio_id: UUID | None = Field(default=None)
     direccion: str | None = Field(default=None, min_length=1, max_length=255)
-    url_ubicacion: str | None = Field(default=None, min_length=1, max_length=2048)
-    telefono: str | None = Field(default=None, min_length=6, max_length=20)
+    url_ubicacion: str | None = Field(default=None, min_length=1, max_length=2048, pattern=r"^https?://.+$")
+    telefono: str | None = Field(default=None, min_length=6, max_length=20, pattern=r"^(?:\d{6,20}|\+\d{6,19})$")
 
     @field_validator("nombre", mode="before")
     @classmethod

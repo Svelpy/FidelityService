@@ -123,20 +123,7 @@ REGISTER_ERROR_RESPONSES = {
     },
 }
 
-COOKIE_OPENAPI = {
-    "parameters": [
-        {
-            "name": "refresh_token",
-            "in": "cookie",
-            "required": False,
-            "description": (
-                "Cookie HttpOnly administrada por el navegador. El frontend "
-                "no debe leerla ni enviarla manualmente."
-            ),
-            "schema": {"type": "string"},
-        }
-    ]
-}
+
 
 
 def _set_refresh_cookie(
@@ -252,8 +239,7 @@ async def login(
         "credentials: include y reemplazar el csrf_token recibido. La cookie "
         "se rota después de un refresh exitoso."
     ),
-    responses={**TOKEN_SUCCESS_RESPONSES, **REFRESH_ERROR_RESPONSES},
-    openapi_extra=COOKIE_OPENAPI,
+    responses={**TOKEN_SUCCESS_RESPONSES, **REFRESH_ERROR_RESPONSES}
 )
 @limiter.limit("10/minute")
 async def refresh(
@@ -296,8 +282,7 @@ async def refresh(
         "existe una sesión. El access token ya emitido continúa válido hasta "
         "su expiración."
     ),
-    responses={**LOGOUT_SUCCESS_RESPONSES, **LOGOUT_ERROR_RESPONSES},
-    openapi_extra=COOKIE_OPENAPI,
+    responses={**LOGOUT_SUCCESS_RESPONSES, **LOGOUT_ERROR_RESPONSES}
 )
 @limiter.limit("10/minute")
 async def logout(

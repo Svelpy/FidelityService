@@ -21,7 +21,7 @@ class UserRegistrationData(BaseModel):
     """Schema para auto-registro."""
     #OBLIGATORIOS
     ci: str = Field(..., min_length=6, max_length=20)
-    telefono: str = Field(..., min_length=6, max_length=20)
+    telefono: str = Field(..., min_length=6, max_length=20, pattern=r"^(?:\d{6,20}|\+\d{6,19})$")
     nombre: str = Field(..., min_length=2, max_length=60)
     #OPCIONALES
     genero: Genero = Field(default=Genero.O)
@@ -137,7 +137,7 @@ class UserCreate(UserRegistrationData):
 class UserSelfUpdate(BaseModel):
     """Schema para actualizar datos del propio usuario."""
     nombre: str | None = Field(default=None, min_length=2, max_length=60)
-    telefono: str | None = Field(default=None, min_length=6, max_length=20)
+    telefono: str | None = Field(default=None, min_length=6, max_length=20, pattern=r"^(?:\d{6,20}|\+\d{6,19})$")
 
     genero: Genero | None = Field(default=None)
     apellidos: str | None = Field(default=None, min_length=2, max_length=120)

@@ -28,7 +28,113 @@ class NegocioService:
     """Consultas y reglas de negocio del dominio de negocios."""
 
     @staticmethod
+    async def _validate_unique_name(
+        db_session: AsyncSession,
+        nombre: str,
+        *,
+        exclude_negocio_id: UUID | None = None,
+    ) -> None:
+        statement = (
+            select(Negocio.id)
+            .where(
+                Negocio.is_deleted.is_(False),
+                func.lower(Negocio.nombre) == func.lower(nombre),
+            )
+            .limit(1)
+        )
+
+        if exclude_negocio_id is not None:
+            statement = statement.where(
+                Negocio.id != exclude_negocio_id
+            )
+
+        result = await db_session.execute(statement)
+
+        if result.scalar_one_or_none() is not None:
+            raise AppException(
+                "Ya existe un negocio con ese nombre.",
+                409,
+                ErrorCode.CONFLICT,
+                {
+                    "nombre": (
+                        "El nombre ya está registrado por un negocio activo."
+                    )
+                },
+            )
+
+    @staticmethod
+    async def _validate_single_active_main(
+        db_session: AsyncSession,
+        *,
+        exclude_negocio_id: UUID | None = None,
+    ) -> None:
+        statement = (
+            select(Negocio.id)
+            .where(
+                Negocio.tipo == TipoNegocio.MAIN,
+                Negocio.is_deleted.is_(False),
+            )
+            .limit(1)
+        )
+
+        if exclude_negocio_id is not None:
+            statement = statement.where(
+                Negocio.id != exclude_negocio_id
+            )
+
+        result = await db_session.execute(statement)
+
+        if result.scalar_one_or_none() is not None:
+            raise AppException(
+                "Ya existe un negocio principal activo.",
+                409,
+                ErrorCode.CONFLICT,
+                {
+                    "tipo": (
+                        "Solo puede existir un negocio activo de tipo MAIN."
+                    )
+                },
+            )
+    @staticmethod
     def _integrity_exception(error: IntegrityError) -> AppException:
+        original_error = error.orig
+        constraint_name = getattr(
+            original_error,
+            "constraint_name",
+            None,
+        )
+
+        if constraint_name is None:
+            constraint_name = getattr(
+                getattr(original_error, "__cause__", None),
+                "constraint_name",
+                None,
+            )
+
+        if constraint_name == "uq_negocio_nombre_activo_ci":
+            return AppException(
+                "Ya existe un negocio con ese nombre.",
+                409,
+                ErrorCode.CONFLICT,
+                {
+                    "nombre": (
+                        "El nombre ya está registrado por un negocio activo."
+                    )
+                },
+            )
+
+        if constraint_name == "uq_negocio_main_activo":
+            return AppException(
+                "Ya existe un negocio principal activo.",
+                409,
+                ErrorCode.CONFLICT,
+                {
+                    "tipo": (
+                        "Solo puede existir un negocio activo de tipo MAIN."
+                    )
+                },
+            )
+
         return AppException(
             "Los datos del negocio entran en conflicto con un registro existente.",
             409,
@@ -136,6 +242,11 @@ class NegocioService:
         data: NegocioCreate,
         actor_id: UUID,
     ) -> Negocio:
+        await cls._validate_unique_name(db_session, data.nombre)
+
+        if data.tipo == TipoNegocio.MAIN:
+            await cls._validate_single_active_main(db_session)
+
         now = datetime.now(timezone.utc)
         negocio = Negocio(
             **data.model_dump(),
@@ -168,6 +279,22 @@ class NegocioService:
         negocio = await cls.get(db_session, negocio_id, for_update=True)
         if not changes:
             return negocio
+
+        if "nombre" in changes:
+            await cls._validate_unique_name(
+                db_session,
+                changes["nombre"],
+                exclude_negocio_id=negocio.id,
+            )
+
+        if (
+            "tipo" in changes
+            and changes["tipo"] == TipoNegocio.MAIN
+        ):
+            await cls._validate_single_active_main(
+                db_session,
+                exclude_negocio_id=negocio.id,
+            )
 
         for field_name, value in changes.items():
             setattr(negocio, field_name, value)

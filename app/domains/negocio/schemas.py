@@ -14,7 +14,7 @@ class NegocioCreate(BaseModel):
     nombre: str = Field(min_length=1, max_length=60)
     tipo: TipoNegocio = Field(...)
     descripcion: str | None = Field(default=None, min_length=1, max_length=255)
-    telefono: str | None = Field(default=None, min_length=6, max_length=20)
+    telefono: str | None = Field(default=None, min_length=6, max_length=20, pattern=r"^(?:\d{6,20}|\+\d{6,19})$")
 
     @field_validator("nombre", mode="before")
     @classmethod
@@ -61,7 +61,7 @@ class NegocioUpdate(BaseModel):
     nombre: str | None = Field(default=None, min_length=1, max_length=60)
     tipo: TipoNegocio | None = Field(default=None)
     descripcion: str | None = Field(default=None, min_length=1, max_length=255)
-    telefono: str | None = Field(default=None, min_length=6, max_length=20)
+    telefono: str | None = Field(default=None, min_length=6, max_length=20, pattern=r"^(?:\d{6,20}|\+\d{6,19})$")
 
     @field_validator("nombre", mode="before")
     @classmethod

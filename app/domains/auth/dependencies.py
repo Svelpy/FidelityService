@@ -30,14 +30,9 @@ oauth2_scheme = OAuth2PasswordBearer(
     refreshUrl=OAUTH2_REFRESH_URL,
     scheme_name=OAUTH2_SCHEME_NAME,
     description=OAUTH2_DESCRIPTION,
-)
-oauth2_scheme_optional = OAuth2PasswordBearer(
-    tokenUrl=OAUTH2_TOKEN_URL,
-    refreshUrl=OAUTH2_REFRESH_URL,
-    scheme_name=OAUTH2_SCHEME_NAME,
-    description=OAUTH2_DESCRIPTION,
     auto_error=False,
 )
+
 
 
 def _get_token_claims(token: str | None, settings: Settings) -> TokenClaims:
@@ -92,7 +87,7 @@ def _ensure_role(
 
 
 async def _load_current_user(
-    token: str,
+    token: str | None,
     settings: Settings,
     db_session: AsyncSession,
 ) -> User:
@@ -115,7 +110,7 @@ async def _load_current_user(
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)],
+    token: Annotated[str | None, Depends(oauth2_scheme)],
     settings: Annotated[Settings, Depends(get_settings)],
     db_session: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
@@ -133,7 +128,7 @@ async def get_current_principal(
 
 
 async def get_current_user_optional(
-    token: Annotated[str | None, Depends(oauth2_scheme_optional)],
+    token: Annotated[str | None, Depends(oauth2_scheme)],
     settings: Annotated[Settings, Depends(get_settings)],
     db_session: Annotated[AsyncSession, Depends(get_db)],
 ) -> User | None:

@@ -34,6 +34,12 @@ def _session() -> MagicMock:
     return session
 
 
+def _scalar_result(value: object) -> MagicMock:
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = value
+    return result
+
+
 @pytest.mark.asyncio
 async def test_get_rechaza_negocio_inexistente() -> None:
     result = MagicMock()
@@ -73,6 +79,7 @@ async def test_list_devuelve_paginacion() -> None:
 @pytest.mark.asyncio
 async def test_create_asigna_auditoria() -> None:
     session = _session()
+    session.execute.return_value = _scalar_result(None)
     actor_id = uuid4()
 
     negocio = await NegocioService.create(
@@ -87,6 +94,62 @@ async def test_create_asigna_auditoria() -> None:
     session.add.assert_called_once_with(negocio)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(negocio)
+
+
+@pytest.mark.asyncio
+async def test_validate_unique_name_rechaza_nombre_activo_duplicado() -> None:
+    session = _session()
+    session.execute.return_value = _scalar_result(uuid4())
+
+    with pytest.raises(AppException) as error:
+        await NegocioService._validate_unique_name(session, "café central")
+
+    assert error.value.status_code == 409
+    assert error.value.details == {
+        "nombre": "El nombre ya está registrado por un negocio activo."
+    }
+
+
+@pytest.mark.asyncio
+async def test_validate_single_active_main_rechaza_segundo_main() -> None:
+    session = _session()
+    session.execute.return_value = _scalar_result(uuid4())
+
+    with pytest.raises(AppException) as error:
+        await NegocioService._validate_single_active_main(session)
+
+    assert error.value.status_code == 409
+    assert error.value.details == {
+        "tipo": "Solo puede existir un negocio activo de tipo MAIN."
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_main_aplica_ambas_validaciones() -> None:
+    session = _session()
+    actor_id = uuid4()
+
+    with (
+        patch.object(
+            NegocioService,
+            "_validate_unique_name",
+            new=AsyncMock(),
+        ) as validate_name,
+        patch.object(
+            NegocioService,
+            "_validate_single_active_main",
+            new=AsyncMock(),
+        ) as validate_main,
+        patch.object(NegocioService, "_commit", new=AsyncMock()),
+    ):
+        await NegocioService.create(
+            session,
+            NegocioCreate(nombre="Farmacia Tupa", tipo=TipoNegocio.MAIN),
+            actor_id,
+        )
+
+    validate_name.assert_awaited_once_with(session, "Farmacia Tupa")
+    validate_main.assert_awaited_once_with(session)
 
 
 @pytest.mark.asyncio

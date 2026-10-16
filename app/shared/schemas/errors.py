@@ -15,8 +15,8 @@ class ErrorResponse(BaseModel):
         json_schema_extra={
             "example": {
                 "status": "fail",
-                "code": "AUTHENTICATION_FAILED",
-                "message": "Email o contraseña incorrectos.",
+                "code": "ERROR_CODE",
+                "message": "La solicitud no pudo procesarse.",
                 "details": {},
             }
         }

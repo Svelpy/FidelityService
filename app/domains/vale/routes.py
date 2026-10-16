@@ -197,7 +197,7 @@ async def update_vale(
     "/{vale_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Eliminar vale",
-    responses=_error_responses(401, 403, 404, 500),
+    responses=_error_responses(401, 403, 404, 422, 500),
 )
 async def delete_vale(
     vale_id: UUID,

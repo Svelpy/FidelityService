@@ -79,7 +79,7 @@ class Settings(BaseSettings):
             raise ValueError("Debe configurarse PROD_ORIGINS en producción")
         return [origin.strip() for origin in origins.split(",") if origin.strip()]
 
-    ACCESS_TOKEN_EXPIRE_MINUTES_DEVELOPMENT: int = Field(default=60, gt=0)
+    ACCESS_TOKEN_EXPIRE_MINUTES_DEVELOPMENT: int = Field(default=600, gt=0)
     ACCESS_TOKEN_EXPIRE_MINUTES_STAGING: int = Field(default=15, gt=0)
     ACCESS_TOKEN_EXPIRE_MINUTES_PRODUCTION: int = Field(default=15, gt=0)
     @property

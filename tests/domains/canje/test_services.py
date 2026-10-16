@@ -69,10 +69,18 @@ async def test_list_aplica_todos_los_filtros_solicitados() -> None:
         status=EstadoCanje.CANJEADO,
         sucursal_id=uuid4(),
     )
+    voucher = Vale(
+        id=redemption.vale_id,
+        total_costo=redemption.total_costo,
+        total_puntos=redemption.total_puntos,
+        nombre="Vale Bs 50",
+        categoria_id=uuid4(),
+        negocio_id=uuid4(),
+    )
     count_result = MagicMock()
     count_result.scalar_one.return_value = 1
     rows_result = MagicMock()
-    rows_result.scalars.return_value.all.return_value = [redemption]
+    rows_result.all.return_value = [(redemption, voucher)]
     session = _session()
     session.execute.side_effect = [count_result, rows_result]
 
@@ -91,7 +99,8 @@ async def test_list_aplica_todos_los_filtros_solicitados() -> None:
     )
 
     assert page.total == 1
-    assert page.data[0].id == redemption.id
+    assert page.data[0].canje.id == redemption.id
+    assert page.data[0].vale.id == voucher.id
     for call in session.execute.await_args_list:
         parameters = call.args[0].compile().params.values()
         assert redemption.cliente_id in parameters
@@ -108,10 +117,21 @@ async def test_list_for_user_incluye_cliente_o_dador() -> None:
         _redemption(cliente_id=user_id),
         _redemption(dador_id=user_id, status=EstadoCanje.CANJEADO, sucursal_id=uuid4()),
     ]
+    vouchers = [
+        Vale(
+            id=redemption.vale_id,
+            total_costo=redemption.total_costo,
+            total_puntos=redemption.total_puntos,
+            nombre="Vale Bs 50",
+            categoria_id=uuid4(),
+            negocio_id=uuid4(),
+        )
+        for redemption in redemptions
+    ]
     count_result = MagicMock()
     count_result.scalar_one.return_value = 2
     rows_result = MagicMock()
-    rows_result.scalars.return_value.all.return_value = redemptions
+    rows_result.all.return_value = list(zip(redemptions, vouchers, strict=True))
     session = _session()
     session.execute.side_effect = [count_result, rows_result]
 
@@ -123,7 +143,10 @@ async def test_list_for_user_incluye_cliente_o_dador() -> None:
     )
 
     assert page.total == 2
-    assert [item.id for item in page.data] == [item.id for item in redemptions]
+    assert [item.canje.id for item in page.data] == [
+        item.id for item in redemptions
+    ]
+    assert [item.vale.id for item in page.data] == [item.id for item in vouchers]
     for call in session.execute.await_args_list:
         statement = call.args[0]
         compiled = statement.compile()
@@ -132,6 +155,36 @@ async def test_list_for_user_incluye_cliente_o_dador() -> None:
         assert "canje.cliente_id" in sql
         assert "canje.dador_id" in sql
         assert " OR " in sql
+
+
+@pytest.mark.asyncio
+async def test_get_devuelve_canje_y_vale_en_una_consulta() -> None:
+    redemption = _redemption()
+    voucher = Vale(
+        id=redemption.vale_id,
+        total_costo=redemption.total_costo,
+        total_puntos=redemption.total_puntos,
+        nombre="Vale Bs 50",
+        categoria_id=uuid4(),
+        negocio_id=uuid4(),
+    )
+    result = MagicMock()
+    result.one_or_none.return_value = (redemption, voucher)
+    session = _session()
+    session.execute.return_value = result
+
+    detail = await CanjeService.get(
+        session,
+        redemption.id,
+        redemption.cliente_id,
+        Role.CLIENTE,
+        None,
+    )
+
+    assert detail.canje.id == redemption.id
+    assert detail.vale.id == voucher.id
+    session.execute.assert_awaited_once()
+    assert "JOIN" in str(session.execute.await_args.args[0].compile())
 
 
 @pytest.mark.asyncio

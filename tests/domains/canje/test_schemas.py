@@ -8,7 +8,10 @@ from app.domains.canje.schemas import (
     CanjeRedeem,
     CanjeResponse,
     CanjeResponseAudit,
+    CanjeValeResponse,
+    CanjeValeResponseAudit,
 )
+from app.domains.vale.schemas import ValeResponse, ValeResponseAudit
 
 
 def test_create_normaliza_referencia() -> None:
@@ -57,3 +60,23 @@ def test_response_examples_contienen_todos_los_campos() -> None:
 
     assert set(response_example) == set(CanjeResponse.model_fields)
     assert set(audit_example) == set(CanjeResponseAudit.model_fields)
+
+
+def test_canje_vale_response_reutiliza_examples_hijos() -> None:
+    example = CanjeValeResponse.model_json_schema()["example"]
+
+    assert example == {
+        "canje": CanjeResponse.model_json_schema()["example"],
+        "vale": ValeResponse.model_json_schema()["example"],
+    }
+    CanjeValeResponse.model_validate(example)
+
+
+def test_canje_vale_response_audit_reutiliza_examples_hijos() -> None:
+    example = CanjeValeResponseAudit.model_json_schema()["example"]
+
+    assert example == {
+        "canje": CanjeResponseAudit.model_json_schema()["example"],
+        "vale": ValeResponseAudit.model_json_schema()["example"],
+    }
+    CanjeValeResponseAudit.model_validate(example)

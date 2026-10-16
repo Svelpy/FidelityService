@@ -8,11 +8,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.domains.canje.models import Canje
-from app.domains.canje.schemas import CanjeCreate, CanjeExpireResponse, CanjeResponse
+from app.domains.canje.schemas import (
+    CanjeCreate,
+    CanjeExpireResponse,
+    CanjeValeResponse,
+    CanjeValeResponseAudit,
+)
 from app.domains.config_puntos.services import ConfigPuntosService
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.domains.sucursal.services import SucursalService
 from app.domains.users.services import UserService
+from app.domains.vale.models import Vale
 from app.domains.vale.services import ValeService
 from app.shared.enums import EstadoCanje, Role
 from app.shared.errors.codes import ErrorCode
@@ -139,7 +145,7 @@ class CanjeService:
         actor_id: UUID,
         actor_role: Role,
         actor_sucursal_id: UUID | None,
-    ) -> Canje:
+    ) -> CanjeValeResponseAudit:
         filters = [
             Canje.id == redemption_id,
             Canje.is_deleted.is_(False),
@@ -149,15 +155,20 @@ class CanjeService:
                 actor_sucursal_id,
             ),
         ]
-        result = await db_session.execute(select(Canje).where(*filters))
-        redemption = result.scalar_one_or_none()
-        if redemption is None:
+        result = await db_session.execute(
+            select(Canje, Vale)
+            .join(Vale, Vale.id == Canje.vale_id)
+            .where(*filters)
+        )
+        row = result.one_or_none()
+        if row is None:
             raise AppException(
                 "Canje no encontrado.",
                 404,
                 ErrorCode.RESOURCE_NOT_FOUND,
             )
-        return redemption
+        redemption, voucher = row
+        return CanjeValeResponseAudit(canje=redemption, vale=voucher)
 
     @classmethod
     async def list(
@@ -174,7 +185,7 @@ class CanjeService:
         vale_id: UUID | None = None,
         status: EstadoCanje | None = None,
         sucursal_id: UUID | None = None,
-    ) -> PaginatedResponse[CanjeResponse]:
+    ) -> PaginatedResponse[CanjeValeResponse]:
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
                 "La paginación indicada no es válida.",
@@ -205,19 +216,23 @@ class CanjeService:
         )
         total = int(total_result.scalar_one())
         result = await db_session.execute(
-            select(Canje)
+            select(Canje, Vale)
+            .join(Vale, Vale.id == Canje.vale_id)
             .where(*filters)
             .order_by(Canje.created_at.desc(), Canje.id)
             .offset((page - 1) * per_page)
             .limit(per_page)
         )
-        redemptions = list(result.scalars().all())
-        return PaginatedResponse[CanjeResponse](
+        data = [
+            CanjeValeResponse(canje=redemption, vale=voucher)
+            for redemption, voucher in result.all()
+        ]
+        return PaginatedResponse[CanjeValeResponse](
             total=total,
             page=page,
             per_page=per_page,
             total_pages=(total + per_page - 1) // per_page,
-            data=redemptions,
+            data=data,
         )
 
     @staticmethod
@@ -227,7 +242,7 @@ class CanjeService:
         *,
         page: int = 1,
         per_page: int = 20,
-    ) -> PaginatedResponse[CanjeResponse]:
+    ) -> PaginatedResponse[CanjeValeResponse]:
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
                 "La paginaciÃ³n indicada no es vÃ¡lida.",
@@ -244,19 +259,23 @@ class CanjeService:
         )
         total = int(total_result.scalar_one())
         result = await db_session.execute(
-            select(Canje)
+            select(Canje, Vale)
+            .join(Vale, Vale.id == Canje.vale_id)
             .where(*filters)
             .order_by(Canje.created_at.desc(), Canje.id)
             .offset((page - 1) * per_page)
             .limit(per_page)
         )
-        redemptions = list(result.scalars().all())
-        return PaginatedResponse[CanjeResponse](
+        data = [
+            CanjeValeResponse(canje=redemption, vale=voucher)
+            for redemption, voucher in result.all()
+        ]
+        return PaginatedResponse[CanjeValeResponse](
             total=total,
             page=page,
             per_page=per_page,
             total_pages=(total + per_page - 1) // per_page,
-            data=redemptions,
+            data=data,
         )
 
     @classmethod

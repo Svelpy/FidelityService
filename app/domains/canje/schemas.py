@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.domains.vale.schemas import ValeResponse, ValeResponseAudit
 from app.shared.enums import EstadoCanje
 from app.shared.services.validators import (
     validator_redemption_code,
@@ -128,6 +129,36 @@ class CanjeResponseAudit(CanjeResponse):
                 "is_deleted": False,
                 "deleted_at": None,
                 "deleted_by": None,
+            }
+        },
+    )
+
+
+class CanjeValeResponse(BaseModel):
+    canje: CanjeResponse
+    vale: ValeResponse
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "canje": CanjeResponse.model_json_schema()["example"],
+                "vale": ValeResponse.model_json_schema()["example"],
+            }
+        },
+    )
+
+
+class CanjeValeResponseAudit(CanjeValeResponse):
+    canje: CanjeResponseAudit
+    vale: ValeResponseAudit
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "canje": CanjeResponseAudit.model_json_schema()["example"],
+                "vale": ValeResponseAudit.model_json_schema()["example"],
             }
         },
     )

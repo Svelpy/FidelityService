@@ -11,8 +11,9 @@ from app.domains.canje.schemas import (
     CanjeCreate,
     CanjeExpireResponse,
     CanjeRedeem,
-    CanjeResponse,
     CanjeResponseAudit,
+    CanjeValeResponse,
+    CanjeValeResponseAudit,
 )
 from app.domains.canje.services import CanjeService
 from app.shared.enums import Action, EstadoCanje, Module
@@ -39,7 +40,7 @@ def _error_responses(*status_codes: int) -> dict[int, dict[str, object]]:
 
 @router.get(
     "/",
-    response_model=PaginatedResponse[CanjeResponse],
+    response_model=PaginatedResponse[CanjeValeResponse],
     summary="Listar canjes visibles",
     responses=_error_responses(401, 403, 422, 500),
 )
@@ -56,7 +57,7 @@ async def list_canjes(
     vale_id: Annotated[UUID | None, Query()] = None,
     status_filter: Annotated[EstadoCanje | None, Query(alias="status")] = None,
     sucursal_id: Annotated[UUID | None, Query()] = None,
-) -> PaginatedResponse[CanjeResponse]:
+) -> PaginatedResponse[CanjeValeResponse]:
     return await CanjeService.list(
         db_session,
         current_user.id,
@@ -74,7 +75,7 @@ async def list_canjes(
 
 @router.get(
     "/me",
-    response_model=PaginatedResponse[CanjeResponse],
+    response_model=PaginatedResponse[CanjeValeResponse],
     summary="Listar mis canjes como cliente o dador",
     responses=_error_responses(401, 403, 422, 500),
 )
@@ -86,7 +87,7 @@ async def list_my_canjes(
     db_session: Annotated[AsyncSession, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> PaginatedResponse[CanjeResponse]:
+) -> PaginatedResponse[CanjeValeResponse]:
     return await CanjeService.list_for_user(
         db_session,
         current_user.id,
@@ -162,7 +163,7 @@ async def redeem_canje(
 
 @router.get(
     "/{canje_id}",
-    response_model=CanjeResponseAudit,
+    response_model=CanjeValeResponseAudit,
     summary="Consultar canje",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -173,7 +174,7 @@ async def get_canje(
         Depends(require_permission(Module.CANJE, Action.READ)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> CanjeResponseAudit:
+) -> CanjeValeResponseAudit:
     return await CanjeService.get(
         db_session,
         canje_id,

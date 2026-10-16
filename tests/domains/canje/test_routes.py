@@ -14,8 +14,13 @@ from app.domains.auth.dependencies import get_current_principal
 from app.domains.auth.schemas import CurrentUser
 from app.domains.canje.models import Canje
 from app.domains.canje.routes import router
-from app.domains.canje.schemas import CanjeExpireResponse, CanjeResponse
+from app.domains.canje.schemas import (
+    CanjeExpireResponse,
+    CanjeValeResponse,
+    CanjeValeResponseAudit,
+)
 from app.domains.canje.services import CanjeService
+from app.domains.vale.models import Vale
 from app.shared.enums import EstadoCanje, Role
 from app.shared.schemas.pagination import PaginatedResponse
 
@@ -33,6 +38,17 @@ def _redemption() -> Canje:
         total_costo=Decimal("50.00"),
         referencia=None,
         config_punto_id=uuid4(),
+    )
+
+
+def _voucher(redemption: Canje) -> Vale:
+    return Vale(
+        id=redemption.vale_id,
+        total_costo=redemption.total_costo,
+        total_puntos=redemption.total_puntos,
+        nombre="Vale Bs 50",
+        categoria_id=uuid4(),
+        negocio_id=uuid4(),
     )
 
 
@@ -92,12 +108,12 @@ def test_list_delega_todos_los_filtros(
     redemption = _redemption()
     dador_id = uuid4()
     sucursal_id = uuid4()
-    page = PaginatedResponse[CanjeResponse](
+    page = PaginatedResponse[CanjeValeResponse](
         total=1,
         page=2,
         per_page=10,
         total_pages=1,
-        data=[redemption],
+        data=[CanjeValeResponse(canje=redemption, vale=_voucher(redemption))],
     )
     with patch.object(
         CanjeService,
@@ -150,7 +166,7 @@ def test_list_me_delega_usuario_y_paginacion(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
     client, principal, session = route_context
-    page = PaginatedResponse[CanjeResponse](
+    page = PaginatedResponse[CanjeValeResponse](
         total=0,
         page=2,
         per_page=10,
@@ -170,6 +186,35 @@ def test_list_me_delega_usuario_y_paginacion(
         principal.id,
         page=2,
         per_page=10,
+    )
+
+
+def test_get_by_id_devuelve_canje_con_vale_auditados(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, principal, session = route_context
+    redemption = _redemption()
+    detail = CanjeValeResponseAudit(
+        canje=redemption,
+        vale=_voucher(redemption),
+    )
+
+    with patch.object(
+        CanjeService,
+        "get",
+        new=AsyncMock(return_value=detail),
+    ) as service:
+        response = client.get(f"/canjes/{redemption.id}")
+
+    assert response.status_code == 200
+    assert response.json()["canje"]["id"] == str(redemption.id)
+    assert response.json()["vale"]["id"] == str(redemption.vale_id)
+    service.assert_awaited_once_with(
+        session,
+        redemption.id,
+        principal.id,
+        principal.role,
+        principal.sucursal_id,
     )
 
 

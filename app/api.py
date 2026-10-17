@@ -8,6 +8,7 @@ from app.domains.config_puntos.routes import router as config_puntos_router
 from app.domains.movimientos_puntos.routes import router as movimientos_puntos_router
 from app.domains.negocio.routes import router as negocio_router
 from app.domains.operacion.routes import router as operacion_router
+from app.domains.resumen.routes import router as resumen_router
 from app.domains.sucursal.routes import router as sucursal_router
 from app.domains.users.routes import router as users_router
 from app.domains.vale.routes import router as vale_router
@@ -21,6 +22,7 @@ no_system_router.include_router(config_puntos_router)
 no_system_router.include_router(movimientos_puntos_router)
 no_system_router.include_router(negocio_router)
 no_system_router.include_router(operacion_router)
+no_system_router.include_router(resumen_router)
 no_system_router.include_router(sucursal_router)
 no_system_router.include_router(vale_router)
 

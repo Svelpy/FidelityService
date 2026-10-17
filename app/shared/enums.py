@@ -56,4 +56,11 @@ class Genero(str, Enum):
     F = "F"
     O = "O"
 
+
+class NivelCliente(str, Enum):
+    BRONCE = "BRONCE"
+    PLATA = "PLATA"
+    ORO = "ORO"
+    DIAMANTE = "DIAMANTE"
+
     

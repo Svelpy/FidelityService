@@ -13,7 +13,12 @@ class Settings(BaseSettings):
     APP_NAME: str = "Proyect_Service_API"
     APP_VERSION: str = "1.0.0"
     APP_DESCRIPTION: str = """Lorep Ipsum"""
-    ENVIRONMENT: Environment = "development"    
+    ENVIRONMENT: Environment = "development"
+    # =================================
+    # Regional
+    # =================================
+    # Bolivia (UTC-4) no aplica horario de verano: un desplazamiento fijo es exacto.
+    TIMEZONE_OFFSET_HOURS: int = Field(default=-4, ge=-12, le=14)
     # =================================
     # PostgreSQL
     # =================================

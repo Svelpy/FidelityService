@@ -9,12 +9,12 @@ from app.domains.auth.dependencies import require_permission, require_role
 from app.domains.auth.schemas import CurrentUser
 from app.domains.canje.schemas import (
     CanjeCreate,
+    CanjeDetailResponse,
+    CanjeDetailResponseAudit,
     CanjeExpireResponse,
+    CanjeListResponse,
     CanjeRedeem,
     CanjeResponseAudit,
-    CanjeValeNegocioResponse,
-    CanjeValeResponse,
-    CanjeValeResponseAudit,
 )
 from app.domains.canje.services import CanjeService
 from app.shared.enums import Action, EstadoCanje, Module, Role
@@ -41,7 +41,7 @@ def _error_responses(*status_codes: int) -> dict[int, dict[str, object]]:
 
 @router.get(
     "/",
-    response_model=PaginatedResponse[CanjeValeResponse],
+    response_model=PaginatedResponse[CanjeListResponse],
     summary="Listar canjes visibles",
     responses=_error_responses(401, 403, 422, 500),
 )
@@ -58,7 +58,8 @@ async def list_canjes(
     vale_id: Annotated[UUID | None, Query()] = None,
     status_filter: Annotated[EstadoCanje | None, Query(alias="status")] = None,
     sucursal_id: Annotated[UUID | None, Query()] = None,
-) -> PaginatedResponse[CanjeValeResponse]:
+    negocio_id: Annotated[UUID | None, Query()] = None,
+) -> PaginatedResponse[CanjeListResponse]:
     return await CanjeService.list(
         db_session,
         current_user.id,
@@ -71,12 +72,13 @@ async def list_canjes(
         vale_id=vale_id,
         status=status_filter,
         sucursal_id=sucursal_id,
+        negocio_id=negocio_id,
     )
 
 
 @router.get(
     "/me",
-    response_model=PaginatedResponse[CanjeValeNegocioResponse],
+    response_model=PaginatedResponse[CanjeListResponse],
     summary="Listar mis canjes como cliente o dador",
     responses=_error_responses(401, 403, 422, 500),
 )
@@ -88,12 +90,20 @@ async def list_my_canjes(
     db_session: Annotated[AsyncSession, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> PaginatedResponse[CanjeValeNegocioResponse]:
+    status_filter: Annotated[EstadoCanje | None, Query(alias="status")] = None,
+    vale_id: Annotated[UUID | None, Query()] = None,
+    negocio_id: Annotated[UUID | None, Query()] = None,
+    sucursal_id: Annotated[UUID | None, Query()] = None,
+) -> PaginatedResponse[CanjeListResponse]:
     return await CanjeService.list_for_user(
         db_session,
         current_user.id,
         page=page,
         per_page=per_page,
+        status=status_filter,
+        vale_id=vale_id,
+        negocio_id=negocio_id,
+        sucursal_id=sucursal_id,
     )
 
 
@@ -171,7 +181,7 @@ async def redeem_canje(
 
 @router.get(
     "/{canje_id}",
-    response_model=CanjeValeResponseAudit,
+    response_model=CanjeDetailResponse,
     summary="Consultar canje",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -182,8 +192,31 @@ async def get_canje(
         Depends(require_permission(Module.CANJE, Action.READ)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> CanjeValeResponseAudit:
+) -> CanjeDetailResponse:
     return await CanjeService.get(
+        db_session,
+        canje_id,
+        current_user.id,
+        current_user.role,
+        current_user.sucursal_id,
+    )
+
+
+@router.get(
+    "/{canje_id}/audit",
+    response_model=CanjeDetailResponseAudit,
+    summary="Consultar canje con auditoría",
+    responses=_error_responses(401, 403, 404, 422, 500),
+)
+async def get_canje_audit(
+    canje_id: UUID,
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_role(Role.SUPERADMIN, Role.OWNER, Role.ADMIN)),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> CanjeDetailResponseAudit:
+    return await CanjeService.get_audit(
         db_session,
         canje_id,
         current_user.id,

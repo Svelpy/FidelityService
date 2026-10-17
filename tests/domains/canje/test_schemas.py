@@ -5,15 +5,14 @@ from pydantic import ValidationError
 
 from app.domains.canje.schemas import (
     CanjeCreate,
+    CanjeDetailResponse,
+    CanjeDetailResponseAudit,
+    CanjeListResponse,
+    CanjeListResponseAudit,
     CanjeRedeem,
     CanjeResponse,
     CanjeResponseAudit,
-    CanjeValeNegocioResponse,
-    CanjeValeResponse,
-    CanjeValeResponseAudit,
 )
-from app.domains.negocio.schemas import NegocioResponse
-from app.domains.vale.schemas import ValeResponse, ValeResponseAudit
 
 
 def test_create_normaliza_referencia() -> None:
@@ -64,32 +63,37 @@ def test_response_examples_contienen_todos_los_campos() -> None:
     assert set(audit_example) == set(CanjeResponseAudit.model_fields)
 
 
-def test_canje_vale_response_reutiliza_examples_hijos() -> None:
-    example = CanjeValeResponse.model_json_schema()["example"]
+@pytest.mark.parametrize(
+    "schema",
+    [CanjeDetailResponse, CanjeDetailResponseAudit],
+)
+def test_canje_detail_responses_reutilizan_examples_hijos(
+    schema: type[CanjeDetailResponse],
+) -> None:
+    example = schema.model_json_schema()["example"]
 
-    assert example == {
-        "canje": CanjeResponse.model_json_schema()["example"],
-        "vale": ValeResponse.model_json_schema()["example"],
+    assert set(example) == {
+        "canje",
+        "usuario_cliente",
+        "usuario_cajero_socio",
+        "vale",
+        "sucursal",
+        "negocio",
     }
-    CanjeValeResponse.model_validate(example)
+    assert example["usuario_cajero_socio"] is None
+    assert example["sucursal"] is None
+    schema.model_validate(example)
 
 
-def test_canje_vale_response_audit_reutiliza_examples_hijos() -> None:
-    example = CanjeValeResponseAudit.model_json_schema()["example"]
+@pytest.mark.parametrize(
+    "schema",
+    [CanjeListResponse, CanjeListResponseAudit],
+)
+def test_canje_list_responses_reutilizan_examples_hijos(
+    schema: type[CanjeListResponse],
+) -> None:
+    example = schema.model_json_schema()["example"]
 
-    assert example == {
-        "canje": CanjeResponseAudit.model_json_schema()["example"],
-        "vale": ValeResponseAudit.model_json_schema()["example"],
-    }
-    CanjeValeResponseAudit.model_validate(example)
-
-
-def test_canje_vale_negocio_response_reutiliza_examples_hijos() -> None:
-    example = CanjeValeNegocioResponse.model_json_schema()["example"]
-
-    assert example == {
-        "canje": CanjeResponse.model_json_schema()["example"],
-        "vale": ValeResponse.model_json_schema()["example"],
-        "negocio": NegocioResponse.model_json_schema()["example"],
-    }
-    CanjeValeNegocioResponse.model_validate(example)
+    assert set(example) == {"canje", "vale", "sucursal", "negocio"}
+    assert example["sucursal"] is None
+    schema.model_validate(example)

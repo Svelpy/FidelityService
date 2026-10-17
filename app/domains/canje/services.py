@@ -5,20 +5,23 @@ from uuid import UUID
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.logging import get_logger
 from app.domains.canje.models import Canje
 from app.domains.canje.schemas import (
     CanjeCreate,
+    CanjeDetailResponse,
+    CanjeDetailResponseAudit,
     CanjeExpireResponse,
-    CanjeValeNegocioResponse,
-    CanjeValeResponse,
-    CanjeValeResponseAudit,
+    CanjeListResponse,
 )
 from app.domains.config_puntos.services import ConfigPuntosService
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.domains.negocio.models import Negocio
+from app.domains.sucursal.models import Sucursal
 from app.domains.sucursal.services import SucursalService
+from app.domains.users.models import User
 from app.domains.users.services import UserService
 from app.domains.vale.models import Vale
 from app.domains.vale.services import ValeService
@@ -140,14 +143,14 @@ class CanjeService:
         return redemption
 
     @classmethod
-    async def get(
+    async def _get_detail_records(
         cls,
         db_session: AsyncSession,
         redemption_id: UUID,
         actor_id: UUID,
         actor_role: Role,
         actor_sucursal_id: UUID | None,
-    ) -> CanjeValeResponseAudit:
+    ) -> tuple[Canje, User, User | None, Vale, Sucursal | None, Negocio]:
         filters = [
             Canje.id == redemption_id,
             Canje.is_deleted.is_(False),
@@ -157,9 +160,15 @@ class CanjeService:
                 actor_sucursal_id,
             ),
         ]
+        cliente = aliased(User)
+        cajero_socio = aliased(User)
         result = await db_session.execute(
-            select(Canje, Vale)
+            select(Canje, cliente, cajero_socio, Vale, Sucursal, Negocio)
+            .join(cliente, cliente.id == Canje.cliente_id)
+            .outerjoin(cajero_socio, cajero_socio.id == Canje.dador_id)
             .join(Vale, Vale.id == Canje.vale_id)
+            .outerjoin(Sucursal, Sucursal.id == Canje.sucursal_id)
+            .join(Negocio, Negocio.id == Vale.negocio_id)
             .where(*filters)
         )
         row = result.one_or_none()
@@ -169,8 +178,61 @@ class CanjeService:
                 404,
                 ErrorCode.RESOURCE_NOT_FOUND,
             )
-        redemption, voucher = row
-        return CanjeValeResponseAudit(canje=redemption, vale=voucher)
+        return row
+
+    @classmethod
+    async def get(
+        cls,
+        db_session: AsyncSession,
+        redemption_id: UUID,
+        actor_id: UUID,
+        actor_role: Role,
+        actor_sucursal_id: UUID | None,
+    ) -> CanjeDetailResponse:
+        redemption, client, redeemer, voucher, branch, business = (
+            await cls._get_detail_records(
+                db_session,
+                redemption_id,
+                actor_id,
+                actor_role,
+                actor_sucursal_id,
+            )
+        )
+        return CanjeDetailResponse(
+            canje=redemption,
+            usuario_cliente=client,
+            usuario_cajero_socio=redeemer,
+            vale=voucher,
+            sucursal=branch,
+            negocio=business,
+        )
+
+    @classmethod
+    async def get_audit(
+        cls,
+        db_session: AsyncSession,
+        redemption_id: UUID,
+        actor_id: UUID,
+        actor_role: Role,
+        actor_sucursal_id: UUID | None,
+    ) -> CanjeDetailResponseAudit:
+        redemption, client, redeemer, voucher, branch, business = (
+            await cls._get_detail_records(
+                db_session,
+                redemption_id,
+                actor_id,
+                actor_role,
+                actor_sucursal_id,
+            )
+        )
+        return CanjeDetailResponseAudit(
+            canje=redemption,
+            usuario_cliente=client,
+            usuario_cajero_socio=redeemer,
+            vale=voucher,
+            sucursal=branch,
+            negocio=business,
+        )
 
     @classmethod
     async def list(
@@ -187,7 +249,8 @@ class CanjeService:
         vale_id: UUID | None = None,
         status: EstadoCanje | None = None,
         sucursal_id: UUID | None = None,
-    ) -> PaginatedResponse[CanjeValeResponse]:
+        negocio_id: UUID | None = None,
+    ) -> PaginatedResponse[CanjeListResponse]:
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
                 "La paginación indicada no es válida.",
@@ -212,24 +275,36 @@ class CanjeService:
             filters.append(Canje.status == status)
         if sucursal_id is not None:
             filters.append(Canje.sucursal_id == sucursal_id)
+        if negocio_id is not None:
+            filters.append(Vale.negocio_id == negocio_id)
 
         total_result = await db_session.execute(
-            select(func.count()).select_from(Canje).where(*filters)
+            select(func.count())
+            .select_from(Canje)
+            .join(Vale, Vale.id == Canje.vale_id)
+            .where(*filters)
         )
         total = int(total_result.scalar_one())
         result = await db_session.execute(
-            select(Canje, Vale)
+            select(Canje, Vale, Sucursal, Negocio)
             .join(Vale, Vale.id == Canje.vale_id)
+            .outerjoin(Sucursal, Sucursal.id == Canje.sucursal_id)
+            .join(Negocio, Negocio.id == Vale.negocio_id)
             .where(*filters)
             .order_by(Canje.created_at.desc(), Canje.id)
             .offset((page - 1) * per_page)
             .limit(per_page)
         )
         data = [
-            CanjeValeResponse(canje=redemption, vale=voucher)
-            for redemption, voucher in result.all()
+            CanjeListResponse(
+                canje=redemption,
+                vale=voucher,
+                sucursal=branch,
+                negocio=business,
+            )
+            for redemption, voucher, branch, business in result.all()
         ]
-        return PaginatedResponse[CanjeValeResponse](
+        return PaginatedResponse[CanjeListResponse](
             total=total,
             page=page,
             per_page=per_page,
@@ -244,7 +319,11 @@ class CanjeService:
         *,
         page: int = 1,
         per_page: int = 20,
-    ) -> PaginatedResponse[CanjeValeNegocioResponse]:
+        status: EstadoCanje | None = None,
+        vale_id: UUID | None = None,
+        negocio_id: UUID | None = None,
+        sucursal_id: UUID | None = None,
+    ) -> PaginatedResponse[CanjeListResponse]:
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
                 "La paginación indicada no es válida.",
@@ -256,13 +335,26 @@ class CanjeService:
             Canje.is_deleted.is_(False),
             or_(Canje.cliente_id == user_id, Canje.dador_id == user_id),
         ]
+        if status is not None:
+            filters.append(Canje.status == status)
+        if vale_id is not None:
+            filters.append(Canje.vale_id == vale_id)
+        if negocio_id is not None:
+            filters.append(Vale.negocio_id == negocio_id)
+        if sucursal_id is not None:
+            filters.append(Canje.sucursal_id == sucursal_id)
+
         total_result = await db_session.execute(
-            select(func.count()).select_from(Canje).where(*filters)
+            select(func.count())
+            .select_from(Canje)
+            .join(Vale, Vale.id == Canje.vale_id)
+            .where(*filters)
         )
         total = int(total_result.scalar_one())
         result = await db_session.execute(
-            select(Canje, Vale, Negocio)
+            select(Canje, Vale, Sucursal, Negocio)
             .join(Vale, Vale.id == Canje.vale_id)
+            .outerjoin(Sucursal, Sucursal.id == Canje.sucursal_id)
             .join(Negocio, Negocio.id == Vale.negocio_id)
             .where(*filters)
             .order_by(Canje.created_at.desc(), Canje.id)
@@ -270,14 +362,15 @@ class CanjeService:
             .limit(per_page)
         )
         data = [
-            CanjeValeNegocioResponse(
+            CanjeListResponse(
                 canje=redemption,
                 vale=voucher,
+                sucursal=branch,
                 negocio=business,
             )
-            for redemption, voucher, business in result.all()
+            for redemption, voucher, branch, business in result.all()
         ]
-        return PaginatedResponse[CanjeValeNegocioResponse](
+        return PaginatedResponse[CanjeListResponse](
             total=total,
             page=page,
             per_page=per_page,

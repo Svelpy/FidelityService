@@ -13,12 +13,14 @@ from app.domains.categoria.models import Categoria
 from app.domains.categoria.services import CategoriaService
 from app.domains.config_puntos.services import ConfigPuntosService
 from app.domains.negocio.models import Negocio
+from app.domains.negocio.schemas import NegocioSucursalesResponseAudit
 from app.domains.negocio.services import NegocioService
 from app.domains.vale.models import Vale
 from app.domains.vale.schemas import (
     ValeCreate,
+    ValeDetailResponse,
     ValeDetailResponseAudit,
-    ValeNegocioCategoriaResponse,
+    ValeListResponse,
     ValePuntosSuggestionResponse,
     ValeUpdate,
 )
@@ -84,10 +86,10 @@ class ValeService:
         return vale
 
     @staticmethod
-    async def get_detail(
+    async def _get_detail_data(
         db_session: AsyncSession,
         vale_id: UUID,
-    ) -> ValeDetailResponseAudit:
+    ) -> tuple[Vale, Categoria, NegocioSucursalesResponseAudit]:
         result = await db_session.execute(
             select(Vale, Categoria)
             .join(Categoria, Categoria.id == Vale.categoria_id)
@@ -104,14 +106,42 @@ class ValeService:
                 ErrorCode.RESOURCE_NOT_FOUND,
             )
         vale, categoria = row
-        negocio = await NegocioService.get_with_sucursales(
+        negocio_detail = await NegocioService.get_with_sucursales(
             db_session,
             vale.negocio_id,
         )
+        return vale, categoria, negocio_detail
+
+    @staticmethod
+    async def get_detail(
+        db_session: AsyncSession,
+        vale_id: UUID,
+    ) -> ValeDetailResponse:
+        vale, categoria, negocio_detail = await ValeService._get_detail_data(
+            db_session,
+            vale_id,
+        )
+        return ValeDetailResponse(
+            vale=vale,
+            categoria=categoria,
+            negocio=negocio_detail.negocio,
+            sucursales=negocio_detail.sucursales,
+        )
+
+    @staticmethod
+    async def get_detail_audit(
+        db_session: AsyncSession,
+        vale_id: UUID,
+    ) -> ValeDetailResponseAudit:
+        vale, categoria, negocio_detail = await ValeService._get_detail_data(
+            db_session,
+            vale_id,
+        )
         return ValeDetailResponseAudit(
             vale=vale,
-            negocio=negocio,
             categoria=categoria,
+            negocio=negocio_detail.negocio,
+            sucursales=negocio_detail.sucursales,
         )
 
     @staticmethod
@@ -123,7 +153,7 @@ class ValeService:
         categoria_id: UUID | None = None,
         negocio_id: UUID | None = None,
         include_deleted: bool = False,
-    ) -> PaginatedResponse[ValeNegocioCategoriaResponse]:
+    ) -> PaginatedResponse[ValeListResponse]:
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
                 "La paginación indicada no es válida.",
@@ -152,14 +182,14 @@ class ValeService:
             .limit(per_page)
         )
         data = [
-            ValeNegocioCategoriaResponse(
+            ValeListResponse(
                 vale=vale,
                 negocio=negocio,
                 categoria=categoria,
             )
             for vale, negocio, categoria in result.all()
         ]
-        return PaginatedResponse[ValeNegocioCategoriaResponse](
+        return PaginatedResponse[ValeListResponse](
             total=total,
             page=page,
             per_page=per_page,

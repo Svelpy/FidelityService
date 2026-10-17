@@ -84,10 +84,20 @@ async def test_list_aplica_todos_los_filtros_solicitados() -> None:
         categoria_id=uuid4(),
         negocio_id=uuid4(),
     )
+    business = Negocio(
+        id=voucher.negocio_id,
+        nombre="Café Central",
+        tipo=TipoNegocio.SOCIO,
+    )
+    branch = Sucursal(
+        id=redemption.sucursal_id,
+        nombre="Central",
+        negocio_id=business.id,
+    )
     count_result = MagicMock()
     count_result.scalar_one.return_value = 1
     rows_result = MagicMock()
-    rows_result.all.return_value = [(redemption, voucher)]
+    rows_result.all.return_value = [(redemption, voucher, branch, business)]
     session = _session()
     session.execute.side_effect = [count_result, rows_result]
 
@@ -103,11 +113,15 @@ async def test_list_aplica_todos_los_filtros_solicitados() -> None:
         vale_id=redemption.vale_id,
         status=redemption.status,
         sucursal_id=redemption.sucursal_id,
+        negocio_id=business.id,
     )
 
     assert page.total == 1
     assert page.data[0].canje.id == redemption.id
     assert page.data[0].vale.id == voucher.id
+    assert page.data[0].sucursal is not None
+    assert page.data[0].sucursal.id == branch.id
+    assert page.data[0].negocio.id == business.id
     for call in session.execute.await_args_list:
         parameters = call.args[0].compile().params.values()
         assert redemption.cliente_id in parameters
@@ -115,6 +129,7 @@ async def test_list_aplica_todos_los_filtros_solicitados() -> None:
         assert redemption.vale_id in parameters
         assert redemption.status in parameters
         assert redemption.sucursal_id in parameters
+        assert business.id in parameters
 
 
 @pytest.mark.asyncio
@@ -139,11 +154,19 @@ async def test_list_for_user_incluye_cliente_o_dador() -> None:
         Negocio(id=voucher.negocio_id, nombre="Café Central", tipo=TipoNegocio.SOCIO)
         for voucher in vouchers
     ]
+    branches = [
+        None,
+        Sucursal(
+            id=redemptions[1].sucursal_id,
+            nombre="Central",
+            negocio_id=businesses[1].id,
+        ),
+    ]
     count_result = MagicMock()
     count_result.scalar_one.return_value = 2
     rows_result = MagicMock()
     rows_result.all.return_value = list(
-        zip(redemptions, vouchers, businesses, strict=True)
+        zip(redemptions, vouchers, branches, businesses, strict=True)
     )
     session = _session()
     session.execute.side_effect = [count_result, rows_result]
@@ -153,6 +176,10 @@ async def test_list_for_user_incluye_cliente_o_dador() -> None:
         user_id,
         page=1,
         per_page=10,
+        status=EstadoCanje.CANJEADO,
+        vale_id=redemptions[1].vale_id,
+        negocio_id=businesses[1].id,
+        sucursal_id=redemptions[1].sucursal_id,
     )
 
     assert page.total == 2
@@ -163,6 +190,9 @@ async def test_list_for_user_incluye_cliente_o_dador() -> None:
     assert [item.negocio.id for item in page.data] == [
         item.id for item in businesses
     ]
+    assert page.data[0].sucursal is None
+    assert page.data[1].sucursal is not None
+    assert page.data[1].sucursal.id == branches[1].id
     assert "created_by" not in page.data[0].model_dump()["negocio"]
     for call in session.execute.await_args_list:
         statement = call.args[0]
@@ -172,6 +202,11 @@ async def test_list_for_user_incluye_cliente_o_dador() -> None:
         assert "canje.cliente_id" in sql
         assert "canje.dador_id" in sql
         assert " OR " in sql
+        parameters = compiled.params.values()
+        assert EstadoCanje.CANJEADO in parameters
+        assert redemptions[1].vale_id in parameters
+        assert businesses[1].id in parameters
+        assert redemptions[1].sucursal_id in parameters
 
 
 @pytest.mark.asyncio
@@ -185,8 +220,22 @@ async def test_get_devuelve_canje_y_vale_en_una_consulta() -> None:
         categoria_id=uuid4(),
         negocio_id=uuid4(),
     )
+    client = _client()
+    client.id = redemption.cliente_id
+    business = Negocio(
+        id=voucher.negocio_id,
+        nombre="Café Central",
+        tipo=TipoNegocio.SOCIO,
+    )
     result = MagicMock()
-    result.one_or_none.return_value = (redemption, voucher)
+    result.one_or_none.return_value = (
+        redemption,
+        client,
+        None,
+        voucher,
+        None,
+        business,
+    )
     session = _session()
     session.execute.return_value = result
 
@@ -199,9 +248,56 @@ async def test_get_devuelve_canje_y_vale_en_una_consulta() -> None:
     )
 
     assert detail.canje.id == redemption.id
+    assert detail.usuario_cliente.id == client.id
+    assert detail.usuario_cajero_socio is None
     assert detail.vale.id == voucher.id
+    assert detail.sucursal is None
+    assert detail.negocio.id == business.id
     session.execute.assert_awaited_once()
     assert "JOIN" in str(session.execute.await_args.args[0].compile())
+
+
+@pytest.mark.asyncio
+async def test_get_audit_reutiliza_consulta_de_detalle() -> None:
+    redemption = _redemption()
+    client = _client()
+    client.id = redemption.cliente_id
+    voucher = Vale(
+        id=redemption.vale_id,
+        total_costo=redemption.total_costo,
+        total_puntos=redemption.total_puntos,
+        nombre="Vale Bs 50",
+        categoria_id=uuid4(),
+        negocio_id=uuid4(),
+    )
+    business = Negocio(
+        id=voucher.negocio_id,
+        nombre="Café Central",
+        tipo=TipoNegocio.SOCIO,
+    )
+    session = _session()
+
+    with patch.object(
+        CanjeService,
+        "_get_detail_records",
+        new=AsyncMock(
+            return_value=(redemption, client, None, voucher, None, business)
+        ),
+    ) as get_records:
+        detail = await CanjeService.get_audit(
+            session,
+            redemption.id,
+            uuid4(),
+            Role.ADMIN,
+            None,
+        )
+
+    assert detail.canje.id == redemption.id
+    assert detail.usuario_cliente.id == client.id
+    assert detail.usuario_cajero_socio is None
+    assert detail.sucursal is None
+    assert detail.negocio.id == business.id
+    get_records.assert_awaited_once()
 
 
 @pytest.mark.asyncio

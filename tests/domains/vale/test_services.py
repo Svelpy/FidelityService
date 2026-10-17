@@ -140,8 +140,36 @@ async def test_get_detail_compone_negocio_con_sucursales_y_categoria() -> None:
     business.assert_awaited_once_with(session, negocio.id)
     assert detail.vale.id == vale.id
     assert detail.categoria.id == categoria.id
-    assert detail.negocio.negocio.id == negocio.id
-    assert detail.negocio.sucursales[0].id == sucursal.id
+    assert detail.negocio.id == negocio.id
+    assert detail.sucursales[0].id == sucursal.id
+
+
+@pytest.mark.asyncio
+async def test_get_detail_audit_reutiliza_datos_del_detalle() -> None:
+    negocio = _negocio()
+    categoria = _categoria()
+    vale = _vale(negocio_id=negocio.id, categoria_id=categoria.id)
+    sucursal = Sucursal(nombre="Sucursal Centro", negocio_id=negocio.id)
+    negocio_sucursales = NegocioSucursalesResponseAudit(
+        negocio=negocio,
+        sucursales=[sucursal],
+    )
+    session = _session()
+
+    with patch.object(
+        ValeService,
+        "_get_detail_data",
+        new=AsyncMock(
+            return_value=(vale, categoria, negocio_sucursales)
+        ),
+    ) as get_detail_data:
+        detail = await ValeService.get_detail_audit(session, vale.id)
+
+    assert detail.vale.id == vale.id
+    assert detail.categoria.id == categoria.id
+    assert detail.negocio.id == negocio.id
+    assert detail.sucursales[0].id == sucursal.id
+    get_detail_data.assert_awaited_once_with(session, vale.id)
 
 
 @pytest.mark.asyncio

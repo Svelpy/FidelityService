@@ -6,8 +6,10 @@ from pydantic import ValidationError
 
 from app.domains.vale.schemas import (
     ValeCreate,
+    ValeDetailResponse,
     ValeDetailResponseAudit,
-    ValeNegocioCategoriaResponse,
+    ValeListResponse,
+    ValeListResponseAudit,
     ValeUpdate,
 )
 
@@ -55,7 +57,31 @@ def test_update_rechaza_null_en_campos_no_nullables(field: str) -> None:
 
 @pytest.mark.parametrize(
     "schema",
-    [ValeNegocioCategoriaResponse, ValeDetailResponseAudit],
+    [
+        ValeListResponse,
+        ValeListResponseAudit,
+        ValeDetailResponse,
+        ValeDetailResponseAudit,
+    ],
 )
 def test_ejemplos_de_respuestas_anidadas_son_validos(schema: type) -> None:
     schema.model_validate(schema.model_json_schema()["example"])
+
+
+@pytest.mark.parametrize("schema", [ValeDetailResponse, ValeDetailResponseAudit])
+def test_detail_no_duplica_clave_negocio(schema: type[ValeDetailResponse]) -> None:
+    example = schema.model_json_schema()["example"]
+
+    assert set(example) == {"vale", "categoria", "negocio", "sucursales"}
+    assert "negocio" not in example["negocio"]
+
+
+@pytest.mark.parametrize("schema", [ValeListResponse, ValeListResponseAudit])
+def test_list_contiene_solo_vale_negocio_y_categoria(
+    schema: type[ValeListResponse],
+) -> None:
+    assert set(schema.model_json_schema()["example"]) == {
+        "vale",
+        "negocio",
+        "categoria",
+    }

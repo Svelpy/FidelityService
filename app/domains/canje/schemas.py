@@ -4,7 +4,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.domains.negocio.schemas import NegocioResponse
+from app.domains.negocio.schemas import NegocioResponse, NegocioResponseAudit
+from app.domains.sucursal.schemas import SucursalResponse, SucursalResponseAudit
+from app.domains.users.schemas import UserResponse, UserResponseAudit
 from app.domains.vale.schemas import ValeResponse, ValeResponseAudit
 from app.shared.enums import EstadoCanje
 from app.shared.services.validators import (
@@ -135,39 +137,56 @@ class CanjeResponseAudit(CanjeResponse):
     )
 
 
-class CanjeValeResponse(BaseModel):
+class CanjeDetailResponse(BaseModel):
     canje: CanjeResponse
+    usuario_cliente: UserResponse
+    usuario_cajero_socio: UserResponse | None
     vale: ValeResponse
+    sucursal: SucursalResponse | None
+    negocio: NegocioResponse
 
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
             "example": {
                 "canje": CanjeResponse.model_json_schema()["example"],
+                "usuario_cliente": UserResponse.model_json_schema()["example"],
+                "usuario_cajero_socio": None,
                 "vale": ValeResponse.model_json_schema()["example"],
+                "sucursal": None,
+                "negocio": NegocioResponse.model_json_schema()["example"],
             }
         },
     )
 
 
-class CanjeValeResponseAudit(CanjeValeResponse):
+class CanjeDetailResponseAudit(CanjeDetailResponse):
     canje: CanjeResponseAudit
+    usuario_cliente: UserResponseAudit
+    usuario_cajero_socio: UserResponseAudit | None
     vale: ValeResponseAudit
+    sucursal: SucursalResponseAudit | None
+    negocio: NegocioResponseAudit
 
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
             "example": {
                 "canje": CanjeResponseAudit.model_json_schema()["example"],
+                "usuario_cliente": UserResponseAudit.model_json_schema()["example"],
+                "usuario_cajero_socio": None,
                 "vale": ValeResponseAudit.model_json_schema()["example"],
+                "sucursal": None,
+                "negocio": NegocioResponseAudit.model_json_schema()["example"],
             }
         },
     )
 
 
-class CanjeValeNegocioResponse(BaseModel):
+class CanjeListResponse(BaseModel):
     canje: CanjeResponse
     vale: ValeResponse
+    sucursal: SucursalResponse | None
     negocio: NegocioResponse
 
     model_config = ConfigDict(
@@ -176,7 +195,27 @@ class CanjeValeNegocioResponse(BaseModel):
             "example": {
                 "canje": CanjeResponse.model_json_schema()["example"],
                 "vale": ValeResponse.model_json_schema()["example"],
+                "sucursal": None,
                 "negocio": NegocioResponse.model_json_schema()["example"],
+            }
+        },
+    )
+
+
+class CanjeListResponseAudit(CanjeListResponse):
+    canje: CanjeResponseAudit
+    vale: ValeResponseAudit
+    sucursal: SucursalResponseAudit | None
+    negocio: NegocioResponseAudit
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "canje": CanjeResponseAudit.model_json_schema()["example"],
+                "vale": ValeResponseAudit.model_json_schema()["example"],
+                "sucursal": None,
+                "negocio": NegocioResponseAudit.model_json_schema()["example"],
             }
         },
     )

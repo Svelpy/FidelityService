@@ -8,21 +8,23 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.domains.auth.dependencies import get_current_principal
 from app.domains.auth.schemas import CurrentUser
 from app.domains.categoria.models import Categoria
 from app.domains.negocio.models import Negocio
-from app.domains.negocio.schemas import NegocioSucursalesResponseAudit
 from app.domains.sucursal.models import Sucursal
 from app.domains.vale.models import Vale
 from app.domains.vale.routes import router
 from app.domains.vale.schemas import (
+    ValeDetailResponse,
     ValeDetailResponseAudit,
-    ValeNegocioCategoriaResponse,
+    ValeListResponse,
     ValePuntosSuggestionResponse,
 )
 from app.domains.vale.services import ValeService
+from app.middlewares.exception_handlers import register_exception_handlers
 from app.shared.enums import Role, TipoNegocio
 from app.shared.schemas.pagination import PaginatedResponse
 
@@ -53,6 +55,7 @@ def _categoria(vale: Vale) -> Categoria:
 @pytest.fixture
 def route_context() -> tuple[TestClient, CurrentUser, MagicMock]:
     app = FastAPI()
+    register_exception_handlers(app, get_settings())
     app.include_router(router)
     current_user = CurrentUser(id=uuid4(), role=Role.SUPERADMIN, sucursal_id=None)
     db_session = MagicMock(spec=AsyncSession)
@@ -223,13 +226,13 @@ def test_list_devuelve_vale_con_negocio_y_categoria(
 ) -> None:
     client, _, _ = route_context
     vale = _vale()
-    page = PaginatedResponse[ValeNegocioCategoriaResponse](
+    page = PaginatedResponse[ValeListResponse](
         total=1,
         page=1,
         per_page=20,
         total_pages=1,
         data=[
-            ValeNegocioCategoriaResponse(
+            ValeListResponse(
                 vale=vale,
                 negocio=_negocio(vale),
                 categoria=_categoria(vale),
@@ -251,13 +254,11 @@ def test_get_delega_al_servicio(
     client, _, db_session = route_context
     vale = _vale()
     negocio = _negocio(vale)
-    detail = ValeDetailResponseAudit(
+    detail = ValeDetailResponse(
         vale=vale,
-        negocio=NegocioSucursalesResponseAudit(
-            negocio=negocio,
-            sucursales=[Sucursal(nombre="Sucursal Centro", negocio_id=negocio.id)],
-        ),
         categoria=_categoria(vale),
+        negocio=negocio,
+        sucursales=[Sucursal(nombre="Sucursal Centro", negocio_id=negocio.id)],
     )
     with patch.object(
         ValeService,
@@ -268,10 +269,53 @@ def test_get_delega_al_servicio(
     assert response.status_code == 200
     body = response.json()
     assert body["vale"]["id"] == str(vale.id)
-    assert body["negocio"]["negocio"]["id"] == str(negocio.id)
-    assert len(body["negocio"]["sucursales"]) == 1
+    assert body["negocio"]["id"] == str(negocio.id)
+    assert len(body["sucursales"]) == 1
     assert body["categoria"]["id"] == str(vale.categoria_id)
     service.assert_awaited_once_with(db_session, vale.id)
+
+
+@pytest.mark.parametrize("role", [Role.SUPERADMIN, Role.OWNER, Role.ADMIN])
+def test_get_audit_permite_roles_administrativos(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+    role: Role,
+) -> None:
+    client, current_user, db_session = route_context
+    current_user.role = role
+    vale = _vale()
+    negocio = _negocio(vale)
+    detail = ValeDetailResponseAudit(
+        vale=vale,
+        categoria=_categoria(vale),
+        negocio=negocio,
+        sucursales=[Sucursal(nombre="Sucursal Centro", negocio_id=negocio.id)],
+    )
+
+    with patch.object(
+        ValeService,
+        "get_detail_audit",
+        new=AsyncMock(return_value=detail),
+    ) as service:
+        response = client.get(f"/vales/{vale.id}/audit")
+
+    assert response.status_code == 200
+    assert response.json()["vale"]["id"] == str(vale.id)
+    service.assert_awaited_once_with(db_session, vale.id)
+
+
+@pytest.mark.parametrize("role", [Role.CAJERO, Role.SOCIO, Role.CLIENTE])
+def test_get_audit_rechaza_roles_no_administrativos(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+    role: Role,
+) -> None:
+    client, current_user, _ = route_context
+    current_user.role = role
+
+    with patch.object(ValeService, "get_detail_audit", new=AsyncMock()) as service:
+        response = client.get(f"/vales/{uuid4()}/audit")
+
+    assert response.status_code == 403
+    service.assert_not_awaited()
 
 
 def test_delete_devuelve_204(

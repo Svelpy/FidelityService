@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -234,6 +234,11 @@ async def test_delete_aplica_soft_delete() -> None:
 
     with (
         patch.object(NegocioService, "get", new=AsyncMock(return_value=negocio)),
+        patch.object(
+            NegocioService,
+            "_validate_without_linked_records",
+            new=AsyncMock(),
+        ) as validate_without_linked_records,
         patch.object(NegocioService, "_commit", new=AsyncMock()) as commit,
     ):
         deleted = await NegocioService.delete(
@@ -247,7 +252,49 @@ async def test_delete_aplica_soft_delete() -> None:
     assert deleted.deleted_by == actor_id
     assert deleted.updated_at == deleted.deleted_at
     assert deleted.updated_by == actor_id
+    validate_without_linked_records.assert_awaited_once_with(
+        ANY,
+        negocio.id,
+    )
     commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("linked_results", "expected_detail"),
+    [
+        (
+            [uuid4()],
+            "El negocio tiene sucursales activas o históricas asociadas.",
+        ),
+        (
+            [None, uuid4()],
+            "El negocio tiene vales activos o históricos asociados.",
+        ),
+    ],
+)
+async def test_delete_rechaza_negocio_con_registros_asociados(
+    linked_results: list[object],
+    expected_detail: str,
+) -> None:
+    negocio = _negocio()
+    session = _session()
+    session.execute.side_effect = [
+        _scalar_result(value) for value in linked_results
+    ]
+
+    with patch.object(
+        NegocioService,
+        "get",
+        new=AsyncMock(return_value=negocio),
+    ):
+        with pytest.raises(AppException) as error:
+            await NegocioService.delete(session, negocio.id, uuid4())
+
+    assert error.value.status_code == 409
+    assert error.value.details == {"negocio_id": expected_detail}
+    assert negocio.is_deleted is False
+    session.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio

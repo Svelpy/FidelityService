@@ -12,6 +12,7 @@ from app.domains.categoria.schemas import (
     CategoriaResponse,
     CategoriaUpdate,
 )
+from app.domains.vale.models import Vale
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 from app.shared.schemas.pagination import PaginatedResponse
@@ -84,6 +85,26 @@ class CategoriaService:
                 409,
                 ErrorCode.CONFLICT,
                 {"nombre": "El nombre genera un slug que ya está registrado."},
+            )
+
+    @staticmethod
+    async def _validate_without_linked_vales(
+        db_session: AsyncSession,
+        categoria_id: UUID,
+    ) -> None:
+        result = await db_session.execute(
+            select(Vale.id).where(Vale.categoria_id == categoria_id).limit(1)
+        )
+        if result.scalar_one_or_none() is not None:
+            raise AppException(
+                "No se puede eliminar la categoría porque tiene vales asociados.",
+                409,
+                ErrorCode.CONFLICT,
+                {
+                    "categoria_id": (
+                        "La categoría tiene vales activos o históricos asociados."
+                    )
+                },
             )
 
     @staticmethod
@@ -231,6 +252,7 @@ class CategoriaService:
         actor_id: UUID,
     ) -> Categoria:
         categoria = await cls.get(db_session, categoria_id, for_update=True)
+        await cls._validate_without_linked_vales(db_session, categoria.id)
         now = datetime.now(timezone.utc)
 
         categoria.is_deleted = True

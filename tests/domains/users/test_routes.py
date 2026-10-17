@@ -19,6 +19,7 @@ from app.domains.users.schemas import (
     UserResponse,
 )
 from app.domains.users.services import UserService
+from app.middlewares.exception_handlers import register_exception_handlers
 from app.shared.enums import Genero, Role
 from app.shared.schemas.pagination import PaginatedResponse
 
@@ -42,6 +43,7 @@ def _user(**overrides: object) -> User:
 @pytest.fixture
 def route_context() -> tuple[TestClient, CurrentUser, MagicMock, MagicMock]:
     app = FastAPI()
+    register_exception_handlers(app, get_settings())
     app.include_router(router)
 
     current_user = CurrentUser(
@@ -151,10 +153,16 @@ def test_delete_my_avatar_delega_service(
     )
 
 
-def test_list_users_devuelve_paginacion(
+@pytest.mark.parametrize(
+    "actor_role",
+    [Role.SUPERADMIN, Role.OWNER, Role.ADMIN],
+)
+def test_list_users_permite_roles_autorizados_y_devuelve_paginacion(
     route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
 ) -> None:
-    client, _, db_session, _ = route_context
+    client, current_user, db_session, _ = route_context
+    current_user.role = actor_role
     user = _user()
     page = PaginatedResponse[UserResponse](
         total=1,
@@ -182,6 +190,65 @@ def test_list_users_devuelve_paginacion(
         sucursal_id=sucursal_id,
         role=Role.CAJERO,
     )
+
+
+@pytest.mark.parametrize("actor_role", [Role.CAJERO, Role.SOCIO, Role.CLIENTE])
+def test_list_users_rechaza_roles_no_autorizados(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
+) -> None:
+    client, current_user, _, _ = route_context
+    current_user.role = actor_role
+
+    with patch.object(UserService, "list", new=AsyncMock()) as service:
+        response = client.get("/users/")
+
+    assert response.status_code == 403
+    service.assert_not_awaited()
+
+
+@pytest.mark.parametrize("actor_role", [Role.SUPERADMIN, Role.OWNER, Role.ADMIN])
+def test_reset_password_permite_roles_administrativos(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
+) -> None:
+    client, current_user, db_session, _ = route_context
+    current_user.role = actor_role
+    user = _user()
+
+    with patch.object(
+        UserService,
+        "reset_password",
+        new=AsyncMock(return_value=user),
+    ) as service:
+        response = client.patch(
+            f"/users/{user.id}/password",
+            json={"new_password": "ClaveNueva123"},
+        )
+
+    assert response.status_code == 200
+    args = service.await_args.args
+    assert args[:2] == (db_session, user.id)
+    assert args[2].new_password == "ClaveNueva123"
+    assert args[3:] == (current_user.id, actor_role)
+
+
+@pytest.mark.parametrize("actor_role", [Role.CAJERO, Role.SOCIO, Role.CLIENTE])
+def test_reset_password_rechaza_roles_no_administrativos(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
+) -> None:
+    client, current_user, _, _ = route_context
+    current_user.role = actor_role
+
+    with patch.object(UserService, "reset_password", new=AsyncMock()) as service:
+        response = client.patch(
+            f"/users/{uuid4()}/password",
+            json={"new_password": "ClaveNueva123"},
+        )
+
+    assert response.status_code == 403
+    service.assert_not_awaited()
 
 
 def test_create_admin_sin_sucursal_devuelve_201(

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.domains.auth.dependencies import require_permission
+from app.domains.auth.dependencies import require_permission, require_role
 from app.domains.auth.schemas import CurrentUser
 from app.domains.canje.schemas import (
     CanjeCreate,
@@ -16,7 +16,7 @@ from app.domains.canje.schemas import (
     CanjeValeResponseAudit,
 )
 from app.domains.canje.services import CanjeService
-from app.shared.enums import Action, EstadoCanje, Module
+from app.shared.enums import Action, EstadoCanje, Module, Role
 from app.shared.schemas.errors import ErrorResponse
 from app.shared.schemas.pagination import PaginatedResponse
 
@@ -128,7 +128,14 @@ async def create_canje(
 async def expire_canjes(
     current_user: Annotated[
         CurrentUser,
-        Depends(require_permission(Module.CANJE, Action.READ)),
+        Depends(
+            require_role(
+                Role.SUPERADMIN,
+                Role.OWNER,
+                Role.ADMIN,
+                Role.CAJERO,
+            )
+        ),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
 ) -> CanjeExpireResponse:
@@ -203,4 +210,5 @@ async def cancel_canje(
         canje_id,
         current_user.id,
         current_user.role,
+        current_user.sucursal_id,
     )

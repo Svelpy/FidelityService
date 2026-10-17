@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.domains.auth.dependencies import (
     get_current_principal,
     require_permission,
+    require_role,
 )
 from app.domains.auth.schemas import CurrentUser
 from app.domains.users.schemas import (
@@ -140,7 +141,10 @@ async def update_me(
     responses=_error_responses(401, 403, 422, 500),
 )
 async def list_users(
-    current_user: Annotated[CurrentUser, Depends(require_permission(Module.USUARIO, Action.READ))],
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_role(Role.SUPERADMIN, Role.OWNER, Role.ADMIN)),
+    ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
@@ -185,7 +189,10 @@ async def create_user(
 async def reset_user_password(
     user_id: UUID,
     data: AdminResetPassword,
-    current_user: Annotated[CurrentUser, Depends(require_permission(Module.USUARIO, Action.UPDATE))],
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_role(Role.SUPERADMIN, Role.OWNER, Role.ADMIN)),
+    ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponseAudit:
     return await UserService.reset_password(

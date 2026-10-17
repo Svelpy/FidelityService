@@ -89,6 +89,27 @@ def test_create_acepta_puntos_distintos_a_sugerencia(
     assert service.await_args.args[0] is db_session
 
 
+def test_create_devuelve_422_ante_validacion_invalida_del_schema(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, _, _ = route_context
+
+    with patch.object(ValeService, "create", new=AsyncMock()) as service:
+        response = client.post(
+            "/vales/",
+            data={
+                "total_costo": "0",
+                "total_puntos": "450",
+                "nombre": "Vale Bs 50",
+                "categoria_id": str(uuid4()),
+                "negocio_id": str(uuid4()),
+            },
+        )
+
+    assert response.status_code == 422
+    service.assert_not_awaited()
+
+
 def test_update_acepta_campos_e_imagen_en_form_data(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
@@ -117,6 +138,62 @@ def test_update_acepta_campos_e_imagen_en_form_data(
         "settings": ANY,
     }
     assert service.await_args.args[:2] == (db_session, vale.id)
+
+
+def test_update_devuelve_422_ante_validacion_invalida_del_schema(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, _, _ = route_context
+    vale_id = uuid4()
+
+    with patch.object(ValeService, "update", new=AsyncMock()) as service:
+        response = client.patch(
+            f"/vales/{vale_id}",
+            data={"total_puntos": "-500"},
+        )
+
+    assert response.status_code == 422
+    service.assert_not_awaited()
+
+
+def test_update_ignora_campos_no_nullable_vacios_del_form_data(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, _, _ = route_context
+    vale = _vale()
+
+    with patch.object(ValeService, "update", new=AsyncMock(return_value=vale)) as service:
+        response = client.patch(
+            f"/vales/{vale.id}",
+            data={
+                "nombre": "Vale actualizado",
+                "total_costo": "",
+                "total_puntos": "",
+                "categoria_id": "",
+                "negocio_id": "",
+            },
+        )
+
+    assert response.status_code == 200
+    submitted = service.await_args.args[2]
+    assert submitted.model_dump(exclude_unset=True) == {
+        "nombre": "Vale actualizado"
+    }
+
+
+def test_update_no_ignora_cero_explicito_del_form_data(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, _, _ = route_context
+
+    with patch.object(ValeService, "update", new=AsyncMock()) as service:
+        response = client.patch(
+            f"/vales/{uuid4()}",
+            data={"total_costo": "0"},
+        )
+
+    assert response.status_code == 422
+    service.assert_not_awaited()
 
 
 def test_get_delega_al_servicio(

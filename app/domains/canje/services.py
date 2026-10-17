@@ -467,6 +467,7 @@ class CanjeService:
         redemption_id: UUID,
         actor_id: UUID,
         actor_role: Role,
+        actor_sucursal_id: UUID | None,
     ) -> Canje:
         if actor_role not in cls._CANCELLER_ROLES:
             raise AppException(
@@ -479,6 +480,23 @@ class CanjeService:
             redemption_id,
             for_update=True,
         )
+        if actor_role in cls._REDEEMER_ROLES:
+            if actor_sucursal_id is None:
+                raise AppException(
+                    "No tienes permisos para cancelar este canje.",
+                    403,
+                    ErrorCode.PERMISSION_DENIED,
+                )
+
+            branch = await SucursalService.get(db_session, actor_sucursal_id)
+            voucher = await ValeService.get(db_session, redemption.vale_id)
+            if branch.negocio_id != voucher.negocio_id:
+                raise AppException(
+                    "No tienes permisos para cancelar este canje.",
+                    403,
+                    ErrorCode.PERMISSION_DENIED,
+                )
+
         if redemption.status is not EstadoCanje.PENDIENTE:
             raise AppException(
                 "Solo puede cancelarse un canje pendiente.",

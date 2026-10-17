@@ -3,6 +3,8 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -41,14 +43,17 @@ async def _parse_vale_create_form(
     negocio_id: Annotated[UUID, Form()],
     descripcion: Annotated[str | None, Form()] = None,
 ) -> ValeCreate:
-    return ValeCreate(
-        total_costo=total_costo,
-        total_puntos=total_puntos,
-        nombre=nombre,
-        descripcion=descripcion,
-        categoria_id=categoria_id,
-        negocio_id=negocio_id,
-    )
+    try:
+        return ValeCreate(
+            total_costo=total_costo,
+            total_puntos=total_puntos,
+            nombre=nombre,
+            descripcion=descripcion,
+            categoria_id=categoria_id,
+            negocio_id=negocio_id,
+        )
+    except ValidationError as error:
+        raise RequestValidationError(error.errors()) from error
 
 
 async def _parse_vale_update_form(
@@ -69,9 +74,19 @@ async def _parse_vale_update_form(
         "categoria_id": categoria_id,
         "negocio_id": negocio_id,
     }
-    return ValeUpdate.model_validate(
-        {field: value for field, value in parsed_values.items() if field in form}
-    )
+    changes = {
+        field: value
+        for field, value in parsed_values.items()
+        if field in form
+        and (
+            field == "descripcion"
+            or form.get(field) not in (None, "")
+        )
+    }
+    try:
+        return ValeUpdate.model_validate(changes)
+    except ValidationError as error:
+        raise RequestValidationError(error.errors()) from error
 
 
 @router.post(

@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.domains.auth.dependencies import get_current_principal
 from app.domains.auth.schemas import CurrentUser
@@ -21,6 +22,7 @@ from app.domains.canje.schemas import (
 )
 from app.domains.canje.services import CanjeService
 from app.domains.vale.models import Vale
+from app.middlewares.exception_handlers import register_exception_handlers
 from app.shared.enums import EstadoCanje, Role
 from app.shared.schemas.pagination import PaginatedResponse
 
@@ -55,6 +57,7 @@ def _voucher(redemption: Canje) -> Vale:
 @pytest.fixture
 def route_context() -> tuple[TestClient, CurrentUser, MagicMock]:
     app = FastAPI()
+    register_exception_handlers(app, get_settings())
     app.include_router(router)
     principal_value = CurrentUser(
         id=uuid4(),
@@ -245,10 +248,16 @@ def test_redeem_delega_codigo_y_sucursal(
     )
 
 
-def test_expire_delega_actor_autenticado(
+@pytest.mark.parametrize(
+    "role",
+    [Role.SUPERADMIN, Role.OWNER, Role.ADMIN, Role.CAJERO],
+)
+def test_expire_permite_roles_autorizados_y_delega_actor(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
+    role: Role,
 ) -> None:
     client, principal, session = route_context
+    principal.role = role
     with patch.object(
         CanjeService,
         "expire_pending",
@@ -259,6 +268,21 @@ def test_expire_delega_actor_autenticado(
     assert response.status_code == 200
     assert response.json() == {"expired_count": 3}
     service.assert_awaited_once_with(session, actor_id=principal.id)
+
+
+@pytest.mark.parametrize("role", [Role.CLIENTE, Role.SOCIO])
+def test_expire_rechaza_roles_no_autorizados(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+    role: Role,
+) -> None:
+    client, principal, _ = route_context
+    principal.role = role
+
+    with patch.object(CanjeService, "expire_pending", new=AsyncMock()) as service:
+        response = client.post("/canjes/expire")
+
+    assert response.status_code == 403
+    service.assert_not_awaited()
 
 
 def test_cancel_delega_identidad_del_cajero(
@@ -281,4 +305,5 @@ def test_cancel_delega_identidad_del_cajero(
         redemption.id,
         principal.id,
         principal.role,
+        principal.sucursal_id,
     )

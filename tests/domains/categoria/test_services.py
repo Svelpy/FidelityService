@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -108,6 +108,11 @@ async def test_delete_aplica_soft_delete_y_auditoria() -> None:
             "get",
             new=AsyncMock(return_value=categoria),
         ),
+        patch.object(
+            CategoriaService,
+            "_validate_without_linked_vales",
+            new=AsyncMock(),
+        ) as validate_without_linked_vales,
         patch.object(CategoriaService, "_commit", new=AsyncMock()) as commit,
     ):
         deleted = await CategoriaService.delete(
@@ -121,4 +126,33 @@ async def test_delete_aplica_soft_delete_y_auditoria() -> None:
     assert deleted.deleted_by == actor_id
     assert deleted.updated_at == deleted.deleted_at
     assert deleted.updated_by == actor_id
+    validate_without_linked_vales.assert_awaited_once_with(
+        ANY,
+        categoria.id,
+    )
     commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_rechaza_categoria_con_vales_asociados() -> None:
+    categoria = Categoria(
+        nombre="Gastronomía",
+        slug="gastronomia",
+        icon_number=3,
+    )
+    session = _session_with_scalar(uuid4())
+
+    with patch.object(
+        CategoriaService,
+        "get",
+        new=AsyncMock(return_value=categoria),
+    ):
+        with pytest.raises(AppException) as error:
+            await CategoriaService.delete(session, categoria.id, uuid4())
+
+    assert error.value.status_code == 409
+    assert error.value.details == {
+        "categoria_id": "La categoría tiene vales activos o históricos asociados."
+    }
+    assert categoria.is_deleted is False
+    session.commit.assert_not_awaited()

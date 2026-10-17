@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -147,6 +147,11 @@ async def test_delete_aplica_soft_delete() -> None:
 
     with (
         patch.object(SucursalService, "get", new=AsyncMock(return_value=sucursal)),
+        patch.object(
+            SucursalService,
+            "_validate_without_linked_users",
+            new=AsyncMock(),
+        ) as validate_without_linked_users,
         patch.object(SucursalService, "_commit", new=AsyncMock()) as commit,
     ):
         deleted = await SucursalService.delete(
@@ -160,7 +165,32 @@ async def test_delete_aplica_soft_delete() -> None:
     assert deleted.deleted_by == actor_id
     assert deleted.updated_at == deleted.deleted_at
     assert deleted.updated_by == actor_id
+    validate_without_linked_users.assert_awaited_once_with(ANY, sucursal.id)
     commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_rechaza_sucursal_con_usuarios_asociados() -> None:
+    sucursal = _sucursal()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = uuid4()
+    session = _session()
+    session.execute.return_value = result
+
+    with patch.object(
+        SucursalService,
+        "get",
+        new=AsyncMock(return_value=sucursal),
+    ):
+        with pytest.raises(AppException) as error:
+            await SucursalService.delete(session, sucursal.id, uuid4())
+
+    assert error.value.status_code == 409
+    assert error.value.details == {
+        "sucursal_id": "La sucursal tiene usuarios activos o históricos asociados."
+    }
+    assert sucursal.is_deleted is False
+    session.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio

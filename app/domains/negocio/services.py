@@ -17,6 +17,7 @@ from app.domains.negocio.schemas import (
     NegocioUpdate,
 )
 from app.domains.sucursal.models import Sucursal
+from app.domains.vale.models import Vale
 from app.integrations.cloudinary import CloudinaryService
 from app.shared.enums import TipoNegocio
 from app.shared.errors.codes import ErrorCode
@@ -98,6 +99,44 @@ class NegocioService:
                     )
                 },
             )
+
+    @staticmethod
+    async def _validate_without_linked_records(
+        db_session: AsyncSession,
+        negocio_id: UUID,
+    ) -> None:
+        sucursal_result = await db_session.execute(
+            select(Sucursal.id)
+            .where(Sucursal.negocio_id == negocio_id)
+            .limit(1)
+        )
+        if sucursal_result.scalar_one_or_none() is not None:
+            raise AppException(
+                "No se puede eliminar el negocio porque tiene sucursales asociadas.",
+                409,
+                ErrorCode.CONFLICT,
+                {
+                    "negocio_id": (
+                        "El negocio tiene sucursales activas o históricas asociadas."
+                    )
+                },
+            )
+
+        vale_result = await db_session.execute(
+            select(Vale.id).where(Vale.negocio_id == negocio_id).limit(1)
+        )
+        if vale_result.scalar_one_or_none() is not None:
+            raise AppException(
+                "No se puede eliminar el negocio porque tiene vales asociados.",
+                409,
+                ErrorCode.CONFLICT,
+                {
+                    "negocio_id": (
+                        "El negocio tiene vales activos o históricos asociados."
+                    )
+                },
+            )
+
     @staticmethod
     def _integrity_exception(error: IntegrityError) -> AppException:
         original_error = error.orig
@@ -397,6 +436,7 @@ class NegocioService:
         actor_id: UUID,
     ) -> Negocio:
         negocio = await cls.get(db_session, negocio_id, for_update=True)
+        await cls._validate_without_linked_records(db_session, negocio.id)
         now = datetime.now(timezone.utc)
 
         negocio.is_deleted = True

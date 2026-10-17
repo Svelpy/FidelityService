@@ -13,6 +13,7 @@ from app.domains.sucursal.schemas import (
     SucursalResponse,
     SucursalUpdate,
 )
+from app.domains.users.models import User
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 from app.shared.schemas.pagination import PaginatedResponse
@@ -48,6 +49,26 @@ class SucursalService:
             raise
 
         await db_session.refresh(sucursal)
+
+    @staticmethod
+    async def _validate_without_linked_users(
+        db_session: AsyncSession,
+        sucursal_id: UUID,
+    ) -> None:
+        result = await db_session.execute(
+            select(User.id).where(User.sucursal_id == sucursal_id).limit(1)
+        )
+        if result.scalar_one_or_none() is not None:
+            raise AppException(
+                "No se puede eliminar la sucursal porque tiene usuarios asociados.",
+                409,
+                ErrorCode.CONFLICT,
+                {
+                    "sucursal_id": (
+                        "La sucursal tiene usuarios activos o históricos asociados."
+                    )
+                },
+            )
 
     @staticmethod
     async def get(
@@ -189,6 +210,7 @@ class SucursalService:
         actor_id: UUID,
     ) -> Sucursal:
         sucursal = await cls.get(db_session, sucursal_id, for_update=True)
+        await cls._validate_without_linked_users(db_session, sucursal.id)
         now = datetime.now(timezone.utc)
 
         sucursal.is_deleted = True

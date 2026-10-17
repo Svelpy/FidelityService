@@ -440,6 +440,16 @@ async def test_cancel_permite_roles_autorizados_en_canje_pendiente(
     redemption = _redemption()
     client = _client(points=200)
     client.id = redemption.cliente_id
+    business_id = uuid4()
+    branch = Sucursal(nombre="Central", negocio_id=business_id)
+    voucher = Vale(
+        id=redemption.vale_id,
+        total_costo=redemption.total_costo,
+        total_puntos=redemption.total_puntos,
+        nombre="Vale",
+        categoria_id=uuid4(),
+        negocio_id=business_id,
+    )
     movement = MovimientoPuntos(
         usuario_id=client.id,
         tipo_movimiento=TipoMovimiento.CANJE,
@@ -460,12 +470,15 @@ async def test_cancel_permite_roles_autorizados_en_canje_pendiente(
             new=AsyncMock(return_value=movement),
         ),
         patch.object(UserService, "get", new=AsyncMock(return_value=client)),
+        patch.object(SucursalService, "get", new=AsyncMock(return_value=branch)),
+        patch.object(ValeService, "get", new=AsyncMock(return_value=voucher)),
     ):
         cancelled = await CanjeService.cancel(
             session,
             redemption.id,
             actor_id,
             role,
+            branch.id if role in {Role.CAJERO, Role.SOCIO} else None,
         )
 
     assert cancelled.status is EstadoCanje.CANCELADO
@@ -481,6 +494,85 @@ async def test_cancel_permite_roles_autorizados_en_canje_pendiente(
     assert adjustments[0].tipo_movimiento is TipoMovimiento.AJUSTE
     assert adjustments[0].movimiento_origen_id == movement.id
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancel_rechaza_operador_de_otro_negocio() -> None:
+    session = _session()
+    redemption = _redemption()
+    branch = Sucursal(nombre="Central", negocio_id=uuid4())
+    voucher = Vale(
+        id=redemption.vale_id,
+        total_costo=redemption.total_costo,
+        total_puntos=redemption.total_puntos,
+        nombre="Vale aliado",
+        categoria_id=uuid4(),
+        negocio_id=uuid4(),
+    )
+
+    with (
+        patch.object(
+            CanjeService,
+            "_get_raw",
+            new=AsyncMock(return_value=redemption),
+        ),
+        patch.object(
+            SucursalService,
+            "get",
+            new=AsyncMock(return_value=branch),
+        ),
+        patch.object(ValeService, "get", new=AsyncMock(return_value=voucher)),
+        patch.object(
+            MovimientoPuntosService,
+            "get_by_redemption_id",
+            new=AsyncMock(),
+        ) as get_movement,
+        patch.object(UserService, "get", new=AsyncMock()) as get_user,
+    ):
+        with pytest.raises(AppException) as error:
+            await CanjeService.cancel(
+                session,
+                redemption.id,
+                uuid4(),
+                Role.CAJERO,
+                branch.id,
+            )
+
+    assert error.value.status_code == 403
+    assert error.value.code == "PERMISSION_DENIED"
+    assert redemption.status is EstadoCanje.PENDIENTE
+    get_movement.assert_not_awaited()
+    get_user.assert_not_awaited()
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancel_rechaza_operador_sin_sucursal() -> None:
+    session = _session()
+    redemption = _redemption()
+
+    with (
+        patch.object(
+            CanjeService,
+            "_get_raw",
+            new=AsyncMock(return_value=redemption),
+        ),
+        patch.object(SucursalService, "get", new=AsyncMock()) as get_branch,
+        patch.object(ValeService, "get", new=AsyncMock()) as get_voucher,
+    ):
+        with pytest.raises(AppException) as error:
+            await CanjeService.cancel(
+                session,
+                redemption.id,
+                uuid4(),
+                Role.SOCIO,
+                None,
+            )
+
+    assert error.value.status_code == 403
+    get_branch.assert_not_awaited()
+    get_voucher.assert_not_awaited()
+    session.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -508,6 +600,7 @@ async def test_cancel_sin_movimiento_previo_tambien_repone_puntos() -> None:
             redemption.id,
             uuid4(),
             Role.ADMIN,
+            None,
         )
 
     assert cancelled.status is EstadoCanje.CANCELADO
@@ -535,6 +628,7 @@ async def test_cancel_rechaza_cliente_aunque_sea_propietario() -> None:
                 redemption.id,
                 client_id,
                 Role.CLIENTE,
+                None,
             )
 
     assert error.value.status_code == 403
@@ -560,6 +654,7 @@ async def test_cancel_detecta_expiracion_sin_registrar_movimiento() -> None:
                 redemption.id,
                 uuid4(),
                 Role.ADMIN,
+                None,
             )
 
     assert error.value.status_code == 409
@@ -590,6 +685,7 @@ async def test_cancel_rechaza_canje_que_no_este_pendiente(
                 redemption.id,
                 uuid4(),
                 Role.ADMIN,
+                None,
             )
 
     assert error.value.status_code == 409

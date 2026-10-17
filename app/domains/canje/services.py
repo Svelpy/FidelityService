@@ -11,11 +11,13 @@ from app.domains.canje.models import Canje
 from app.domains.canje.schemas import (
     CanjeCreate,
     CanjeExpireResponse,
+    CanjeValeNegocioResponse,
     CanjeValeResponse,
     CanjeValeResponseAudit,
 )
 from app.domains.config_puntos.services import ConfigPuntosService
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
+from app.domains.negocio.models import Negocio
 from app.domains.sucursal.services import SucursalService
 from app.domains.users.services import UserService
 from app.domains.vale.models import Vale
@@ -242,10 +244,10 @@ class CanjeService:
         *,
         page: int = 1,
         per_page: int = 20,
-    ) -> PaginatedResponse[CanjeValeResponse]:
+    ) -> PaginatedResponse[CanjeValeNegocioResponse]:
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
-                "La paginaciÃ³n indicada no es vÃ¡lida.",
+                "La paginación indicada no es válida.",
                 422,
                 ErrorCode.VALIDATION_ERROR,
             )
@@ -259,18 +261,23 @@ class CanjeService:
         )
         total = int(total_result.scalar_one())
         result = await db_session.execute(
-            select(Canje, Vale)
+            select(Canje, Vale, Negocio)
             .join(Vale, Vale.id == Canje.vale_id)
+            .join(Negocio, Negocio.id == Vale.negocio_id)
             .where(*filters)
             .order_by(Canje.created_at.desc(), Canje.id)
             .offset((page - 1) * per_page)
             .limit(per_page)
         )
         data = [
-            CanjeValeResponse(canje=redemption, vale=voucher)
-            for redemption, voucher in result.all()
+            CanjeValeNegocioResponse(
+                canje=redemption,
+                vale=voucher,
+                negocio=business,
+            )
+            for redemption, voucher, business in result.all()
         ]
-        return PaginatedResponse[CanjeValeResponse](
+        return PaginatedResponse[CanjeValeNegocioResponse](
             total=total,
             page=page,
             per_page=per_page,

@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.domains.negocio.schemas import NegocioResponse
 from app.domains.vale.schemas import ValeResponse, ValeResponseAudit
 from app.shared.enums import EstadoCanje
 from app.shared.services.validators import (
@@ -159,6 +160,23 @@ class CanjeValeResponseAudit(CanjeValeResponse):
             "example": {
                 "canje": CanjeResponseAudit.model_json_schema()["example"],
                 "vale": ValeResponseAudit.model_json_schema()["example"],
+            }
+        },
+    )
+
+
+class CanjeValeNegocioResponse(BaseModel):
+    canje: CanjeResponse
+    vale: ValeResponse
+    negocio: NegocioResponse
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "canje": CanjeResponse.model_json_schema()["example"],
+                "vale": ValeResponse.model_json_schema()["example"],
+                "negocio": NegocioResponse.model_json_schema()["example"],
             }
         },
     )

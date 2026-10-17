@@ -17,13 +17,15 @@ from app.domains.canje.models import Canje
 from app.domains.canje.routes import router
 from app.domains.canje.schemas import (
     CanjeExpireResponse,
+    CanjeValeNegocioResponse,
     CanjeValeResponse,
     CanjeValeResponseAudit,
 )
 from app.domains.canje.services import CanjeService
+from app.domains.negocio.models import Negocio
 from app.domains.vale.models import Vale
 from app.middlewares.exception_handlers import register_exception_handlers
-from app.shared.enums import EstadoCanje, Role
+from app.shared.enums import EstadoCanje, Role, TipoNegocio
 from app.shared.schemas.pagination import PaginatedResponse
 
 
@@ -169,12 +171,25 @@ def test_list_me_delega_usuario_y_paginacion(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
     client, principal, session = route_context
-    page = PaginatedResponse[CanjeValeResponse](
-        total=0,
+    redemption = _redemption()
+    voucher = _voucher(redemption)
+    business = Negocio(
+        id=voucher.negocio_id,
+        nombre="Café Central",
+        tipo=TipoNegocio.SOCIO,
+    )
+    page = PaginatedResponse[CanjeValeNegocioResponse](
+        total=1,
         page=2,
         per_page=10,
-        total_pages=0,
-        data=[],
+        total_pages=1,
+        data=[
+            CanjeValeNegocioResponse(
+                canje=redemption,
+                vale=voucher,
+                negocio=business,
+            )
+        ],
     )
     with patch.object(
         CanjeService,
@@ -184,6 +199,12 @@ def test_list_me_delega_usuario_y_paginacion(
         response = client.get("/canjes/me", params={"page": 2, "per_page": 10})
 
     assert response.status_code == 200
+    item = response.json()["data"][0]
+    assert set(item) == {"canje", "vale", "negocio"}
+    assert item["negocio"]["id"] == str(business.id)
+    for nested in item.values():
+        assert "created_at" in nested and "updated_at" in nested
+        assert "created_by" not in nested and "is_deleted" not in nested
     service.assert_awaited_once_with(
         session,
         principal.id,

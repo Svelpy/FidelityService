@@ -12,13 +12,20 @@ from app.domains.config_puntos.models import ConfigPuntos
 from app.domains.config_puntos.services import ConfigPuntosService
 from app.domains.movimientos_puntos.models import MovimientoPuntos
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
+from app.domains.negocio.models import Negocio
 from app.domains.sucursal.models import Sucursal
 from app.domains.sucursal.services import SucursalService
 from app.domains.users.models import User
 from app.domains.users.services import UserService
 from app.domains.vale.models import Vale
 from app.domains.vale.services import ValeService
-from app.shared.enums import EstadoCanje, Genero, Role, TipoMovimiento
+from app.shared.enums import (
+    EstadoCanje,
+    Genero,
+    Role,
+    TipoMovimiento,
+    TipoNegocio,
+)
 from app.shared.errors.exceptions import AppException
 
 
@@ -128,10 +135,16 @@ async def test_list_for_user_incluye_cliente_o_dador() -> None:
         )
         for redemption in redemptions
     ]
+    businesses = [
+        Negocio(id=voucher.negocio_id, nombre="Café Central", tipo=TipoNegocio.SOCIO)
+        for voucher in vouchers
+    ]
     count_result = MagicMock()
     count_result.scalar_one.return_value = 2
     rows_result = MagicMock()
-    rows_result.all.return_value = list(zip(redemptions, vouchers, strict=True))
+    rows_result.all.return_value = list(
+        zip(redemptions, vouchers, businesses, strict=True)
+    )
     session = _session()
     session.execute.side_effect = [count_result, rows_result]
 
@@ -147,6 +160,10 @@ async def test_list_for_user_incluye_cliente_o_dador() -> None:
         item.id for item in redemptions
     ]
     assert [item.vale.id for item in page.data] == [item.id for item in vouchers]
+    assert [item.negocio.id for item in page.data] == [
+        item.id for item in businesses
+    ]
+    assert "created_by" not in page.data[0].model_dump()["negocio"]
     for call in session.execute.await_args_list:
         statement = call.args[0]
         compiled = statement.compile()

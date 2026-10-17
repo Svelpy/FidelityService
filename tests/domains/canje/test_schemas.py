@@ -8,9 +8,11 @@ from app.domains.canje.schemas import (
     CanjeRedeem,
     CanjeResponse,
     CanjeResponseAudit,
+    CanjeValeNegocioResponse,
     CanjeValeResponse,
     CanjeValeResponseAudit,
 )
+from app.domains.negocio.schemas import NegocioResponse
 from app.domains.vale.schemas import ValeResponse, ValeResponseAudit
 
 
@@ -80,3 +82,14 @@ def test_canje_vale_response_audit_reutiliza_examples_hijos() -> None:
         "vale": ValeResponseAudit.model_json_schema()["example"],
     }
     CanjeValeResponseAudit.model_validate(example)
+
+
+def test_canje_vale_negocio_response_reutiliza_examples_hijos() -> None:
+    example = CanjeValeNegocioResponse.model_json_schema()["example"]
+
+    assert example == {
+        "canje": CanjeResponse.model_json_schema()["example"],
+        "vale": ValeResponse.model_json_schema()["example"],
+        "negocio": NegocioResponse.model_json_schema()["example"],
+    }
+    CanjeValeNegocioResponse.model_validate(example)

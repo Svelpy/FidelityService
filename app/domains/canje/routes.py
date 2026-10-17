@@ -12,6 +12,7 @@ from app.domains.canje.schemas import (
     CanjeExpireResponse,
     CanjeRedeem,
     CanjeResponseAudit,
+    CanjeValeNegocioResponse,
     CanjeValeResponse,
     CanjeValeResponseAudit,
 )
@@ -75,7 +76,7 @@ async def list_canjes(
 
 @router.get(
     "/me",
-    response_model=PaginatedResponse[CanjeValeResponse],
+    response_model=PaginatedResponse[CanjeValeNegocioResponse],
     summary="Listar mis canjes como cliente o dador",
     responses=_error_responses(401, 403, 422, 500),
 )
@@ -87,7 +88,7 @@ async def list_my_canjes(
     db_session: Annotated[AsyncSession, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> PaginatedResponse[CanjeValeResponse]:
+) -> PaginatedResponse[CanjeValeNegocioResponse]:
     return await CanjeService.list_for_user(
         db_session,
         current_user.id,

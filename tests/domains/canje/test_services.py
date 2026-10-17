@@ -132,6 +132,40 @@ async def test_list_aplica_todos_los_filtros_solicitados() -> None:
         assert business.id in parameters
 
 
+def _empty_list_session() -> MagicMock:
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 0
+    rows_result = MagicMock()
+    rows_result.all.return_value = []
+    session = _session()
+    session.execute.side_effect = [count_result, rows_result]
+    return session
+
+
+@pytest.mark.asyncio
+async def test_list_cajero_ve_todos_los_canjes() -> None:
+    actor_branch_id = uuid4()
+    session = _empty_list_session()
+
+    await CanjeService.list(session, uuid4(), Role.CAJERO, actor_branch_id)
+
+    for call in session.execute.await_args_list:
+        parameters = call.args[0].compile().params.values()
+        assert actor_branch_id not in parameters
+
+
+@pytest.mark.asyncio
+async def test_list_socio_queda_limitado_a_su_sucursal() -> None:
+    actor_branch_id = uuid4()
+    session = _empty_list_session()
+
+    await CanjeService.list(session, uuid4(), Role.SOCIO, actor_branch_id)
+
+    for call in session.execute.await_args_list:
+        parameters = call.args[0].compile().params.values()
+        assert actor_branch_id in parameters
+
+
 @pytest.mark.asyncio
 async def test_list_for_user_incluye_cliente_o_dador() -> None:
     user_id = uuid4()

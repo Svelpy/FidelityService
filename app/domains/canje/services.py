@@ -37,7 +37,9 @@ logger = get_logger(__name__)
 class CanjeService:
     """Ciclo de vida de solicitudes de canje de vales."""
 
-    _ROLES_WITH_GLOBAL_VISIBILITY = frozenset({Role.SUPERADMIN, Role.ADMIN, Role.OWNER})
+    _ROLES_WITH_GLOBAL_VISIBILITY = frozenset(
+        {Role.SUPERADMIN, Role.ADMIN, Role.OWNER, Role.CAJERO}
+    )
     _REDEEMER_ROLES = frozenset({Role.CAJERO, Role.SOCIO})
     _CANCELLER_ROLES = frozenset(
         {Role.SUPERADMIN, Role.OWNER, Role.ADMIN, Role.CAJERO, Role.SOCIO}

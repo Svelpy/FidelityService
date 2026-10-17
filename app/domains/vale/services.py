@@ -9,14 +9,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.logging import get_logger
+from app.domains.categoria.models import Categoria
 from app.domains.categoria.services import CategoriaService
 from app.domains.config_puntos.services import ConfigPuntosService
+from app.domains.negocio.models import Negocio
 from app.domains.negocio.services import NegocioService
 from app.domains.vale.models import Vale
 from app.domains.vale.schemas import (
     ValeCreate,
+    ValeDetailResponseAudit,
+    ValeNegocioCategoriaResponse,
     ValePuntosSuggestionResponse,
-    ValeResponse,
     ValeUpdate,
 )
 from app.integrations.cloudinary import CloudinaryService
@@ -81,6 +84,37 @@ class ValeService:
         return vale
 
     @staticmethod
+    async def get_detail(
+        db_session: AsyncSession,
+        vale_id: UUID,
+    ) -> ValeDetailResponseAudit:
+        result = await db_session.execute(
+            select(Vale, Categoria)
+            .join(Categoria, Categoria.id == Vale.categoria_id)
+            .where(
+                Vale.id == vale_id,
+                Vale.is_deleted.is_(False),
+            )
+        )
+        row = result.one_or_none()
+        if row is None:
+            raise AppException(
+                "Vale no encontrado.",
+                404,
+                ErrorCode.RESOURCE_NOT_FOUND,
+            )
+        vale, categoria = row
+        negocio = await NegocioService.get_with_sucursales(
+            db_session,
+            vale.negocio_id,
+        )
+        return ValeDetailResponseAudit(
+            vale=vale,
+            negocio=negocio,
+            categoria=categoria,
+        )
+
+    @staticmethod
     async def list(
         db_session: AsyncSession,
         *,
@@ -89,7 +123,7 @@ class ValeService:
         categoria_id: UUID | None = None,
         negocio_id: UUID | None = None,
         include_deleted: bool = False,
-    ) -> PaginatedResponse[ValeResponse]:
+    ) -> PaginatedResponse[ValeNegocioCategoriaResponse]:
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
                 "La paginación indicada no es válida.",
@@ -109,19 +143,28 @@ class ValeService:
         )
         total = int(total_result.scalar_one())
         result = await db_session.execute(
-            select(Vale)
+            select(Vale, Negocio, Categoria)
+            .join(Negocio, Negocio.id == Vale.negocio_id)
+            .join(Categoria, Categoria.id == Vale.categoria_id)
             .where(*filters)
             .order_by(Vale.nombre, Vale.id)
             .offset((page - 1) * per_page)
             .limit(per_page)
         )
-        vales = list(result.scalars().all())
-        return PaginatedResponse[ValeResponse](
+        data = [
+            ValeNegocioCategoriaResponse(
+                vale=vale,
+                negocio=negocio,
+                categoria=categoria,
+            )
+            for vale, negocio, categoria in result.all()
+        ]
+        return PaginatedResponse[ValeNegocioCategoriaResponse](
             total=total,
             page=page,
             per_page=per_page,
             total_pages=(total + per_page - 1) // per_page,
-            data=vales,
+            data=data,
         )
 
     @classmethod

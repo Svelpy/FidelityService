@@ -7,15 +7,28 @@ from fastapi import UploadFile
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import Settings
+from app.domains.categoria.models import Categoria
 from app.domains.categoria.services import CategoriaService
 from app.domains.config_puntos.models import ConfigPuntos
 from app.domains.config_puntos.services import ConfigPuntosService
+from app.domains.negocio.models import Negocio
+from app.domains.negocio.schemas import NegocioSucursalesResponseAudit
 from app.domains.negocio.services import NegocioService
+from app.domains.sucursal.models import Sucursal
 from app.domains.vale.models import Vale
 from app.domains.vale.schemas import ValeCreate, ValeUpdate
 from app.domains.vale.services import ValeService
 from app.integrations.cloudinary import CloudinaryService
+from app.shared.enums import TipoNegocio
 from app.shared.errors.exceptions import AppException
+
+
+def _negocio() -> Negocio:
+    return Negocio(nombre="Café Central", tipo=TipoNegocio.SOCIO)
+
+
+def _categoria() -> Categoria:
+    return Categoria(nombre="Gastronomía", slug="gastronomia", icon_number=3)
 
 
 def _vale(**overrides: object) -> Vale:
@@ -86,12 +99,60 @@ async def test_get_rechaza_vale_inexistente() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_detail_rechaza_vale_inexistente() -> None:
+    result = MagicMock()
+    result.one_or_none.return_value = None
+    session = _session()
+    session.execute.return_value = result
+    with (
+        patch.object(
+            NegocioService,
+            "get_with_sucursales",
+            new=AsyncMock(),
+        ) as business,
+        pytest.raises(AppException) as error,
+    ):
+        await ValeService.get_detail(session, uuid4())
+    assert error.value.status_code == 404
+    business.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_detail_compone_negocio_con_sucursales_y_categoria() -> None:
+    negocio = _negocio()
+    categoria = _categoria()
+    vale = _vale(negocio_id=negocio.id, categoria_id=categoria.id)
+    sucursal = Sucursal(nombre="Sucursal Centro", negocio_id=negocio.id)
+    result = MagicMock()
+    result.one_or_none.return_value = (vale, categoria)
+    session = _session()
+    session.execute.return_value = result
+    negocio_sucursales = NegocioSucursalesResponseAudit(
+        negocio=negocio,
+        sucursales=[sucursal],
+    )
+    with patch.object(
+        NegocioService,
+        "get_with_sucursales",
+        new=AsyncMock(return_value=negocio_sucursales),
+    ) as business:
+        detail = await ValeService.get_detail(session, vale.id)
+    business.assert_awaited_once_with(session, negocio.id)
+    assert detail.vale.id == vale.id
+    assert detail.categoria.id == categoria.id
+    assert detail.negocio.negocio.id == negocio.id
+    assert detail.negocio.sucursales[0].id == sucursal.id
+
+
+@pytest.mark.asyncio
 async def test_list_devuelve_paginacion_filtrada() -> None:
-    vale = _vale()
+    negocio = _negocio()
+    categoria = _categoria()
+    vale = _vale(negocio_id=negocio.id, categoria_id=categoria.id)
     count_result = MagicMock()
     count_result.scalar_one.return_value = 1
     rows_result = MagicMock()
-    rows_result.scalars.return_value.all.return_value = [vale]
+    rows_result.all.return_value = [(vale, negocio, categoria)]
     session = _session()
     session.execute.side_effect = [count_result, rows_result]
     page = await ValeService.list(
@@ -102,7 +163,9 @@ async def test_list_devuelve_paginacion_filtrada() -> None:
         negocio_id=vale.negocio_id,
     )
     assert page.total == 1
-    assert page.data[0].id == vale.id
+    assert page.data[0].vale.id == vale.id
+    assert page.data[0].negocio.id == negocio.id
+    assert page.data[0].categoria.id == categoria.id
 
 
 @pytest.mark.asyncio

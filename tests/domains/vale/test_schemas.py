@@ -4,7 +4,12 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.domains.vale.schemas import ValeCreate, ValeUpdate
+from app.domains.vale.schemas import (
+    ValeCreate,
+    ValeDetailResponseAudit,
+    ValeNegocioCategoriaResponse,
+    ValeUpdate,
+)
 
 
 def _data() -> dict[str, object]:
@@ -46,3 +51,11 @@ def test_update_permite_limpiar_descripcion() -> None:
 def test_update_rechaza_null_en_campos_no_nullables(field: str) -> None:
     with pytest.raises(ValidationError):
         ValeUpdate.model_validate({field: None})
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [ValeNegocioCategoriaResponse, ValeDetailResponseAudit],
+)
+def test_ejemplos_de_respuestas_anidadas_son_validos(schema: type) -> None:
+    schema.model_validate(schema.model_json_schema()["example"])

@@ -4,6 +4,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.domains.categoria.schemas import CategoriaResponse, CategoriaResponseAudit
+from app.domains.negocio.schemas import (
+    NegocioResponse,
+    NegocioSucursalesResponseAudit,
+)
 from app.shared.services.validators import (
     validator_non_empty_text,
     validator_positive_integer,
@@ -173,6 +178,43 @@ class ValeResponseAudit(ValeResponse):
             }
         },
     )
+
+
+class ValeNegocioCategoriaResponse(BaseModel):
+    vale: ValeResponse
+    negocio: NegocioResponse
+    categoria: CategoriaResponse
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "vale": ValeResponse.model_json_schema()["example"],
+                "negocio": NegocioResponse.model_json_schema()["example"],
+                "categoria": CategoriaResponse.model_json_schema()["example"],
+            }
+        },
+    )
+
+
+class ValeDetailResponseAudit(BaseModel):
+    vale: ValeResponseAudit
+    negocio: NegocioSucursalesResponseAudit
+    categoria: CategoriaResponseAudit
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "vale": ValeResponseAudit.model_json_schema()["example"],
+                "negocio": (
+                    NegocioSucursalesResponseAudit.model_json_schema()["example"]
+                ),
+                "categoria": CategoriaResponseAudit.model_json_schema()["example"],
+            }
+        },
+    )
+
 
 class ValePuntosSuggestionRequest(BaseModel):
     total_costo: Decimal = Field(gt=0, max_digits=14, decimal_places=2)

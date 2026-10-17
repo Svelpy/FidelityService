@@ -13,9 +13,10 @@ from app.domains.auth.dependencies import require_permission
 from app.domains.auth.schemas import CurrentUser
 from app.domains.vale.schemas import (
     ValeCreate,
+    ValeDetailResponseAudit,
+    ValeNegocioCategoriaResponse,
     ValePuntosSuggestionRequest,
     ValePuntosSuggestionResponse,
-    ValeResponse,
     ValeResponseAudit,
     ValeUpdate,
 )
@@ -108,7 +109,7 @@ async def suggest_vale_points(
 
 @router.get(
     "/",
-    response_model=PaginatedResponse[ValeResponse],
+    response_model=PaginatedResponse[ValeNegocioCategoriaResponse],
     summary="Listar vales",
     responses=_error_responses(401, 403, 422, 500),
 )
@@ -122,7 +123,7 @@ async def list_vales(
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
     categoria_id: Annotated[UUID | None, Query()] = None,
     negocio_id: Annotated[UUID | None, Query()] = None,
-) -> PaginatedResponse[ValeResponse]:
+) -> PaginatedResponse[ValeNegocioCategoriaResponse]:
     return await ValeService.list(
         db_session,
         page=page,
@@ -163,7 +164,7 @@ async def create_vale(
 
 @router.get(
     "/{vale_id}",
-    response_model=ValeResponseAudit,
+    response_model=ValeDetailResponseAudit,
     summary="Consultar vale",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -174,8 +175,8 @@ async def get_vale(
         Depends(require_permission(Module.VALE, Action.READ)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> ValeResponseAudit:
-    return await ValeService.get(db_session, vale_id)
+) -> ValeDetailResponseAudit:
+    return await ValeService.get_detail(db_session, vale_id)
 
 
 @router.patch(

@@ -11,11 +11,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.domains.auth.dependencies import get_current_principal
 from app.domains.auth.schemas import CurrentUser
+from app.domains.categoria.models import Categoria
+from app.domains.negocio.models import Negocio
+from app.domains.negocio.schemas import NegocioSucursalesResponseAudit
+from app.domains.sucursal.models import Sucursal
 from app.domains.vale.models import Vale
 from app.domains.vale.routes import router
-from app.domains.vale.schemas import ValePuntosSuggestionResponse
+from app.domains.vale.schemas import (
+    ValeDetailResponseAudit,
+    ValeNegocioCategoriaResponse,
+    ValePuntosSuggestionResponse,
+)
 from app.domains.vale.services import ValeService
-from app.shared.enums import Role
+from app.shared.enums import Role, TipoNegocio
+from app.shared.schemas.pagination import PaginatedResponse
 
 
 def _vale() -> Vale:
@@ -25,6 +34,19 @@ def _vale() -> Vale:
         nombre="Vale Bs 50",
         categoria_id=uuid4(),
         negocio_id=uuid4(),
+    )
+
+
+def _negocio(vale: Vale) -> Negocio:
+    return Negocio(id=vale.negocio_id, nombre="Café Central", tipo=TipoNegocio.SOCIO)
+
+
+def _categoria(vale: Vale) -> Categoria:
+    return Categoria(
+        id=vale.categoria_id,
+        nombre="Gastronomía",
+        slug="gastronomia",
+        icon_number=3,
     )
 
 
@@ -196,14 +218,59 @@ def test_update_no_ignora_cero_explicito_del_form_data(
     service.assert_not_awaited()
 
 
+def test_list_devuelve_vale_con_negocio_y_categoria(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, _, _ = route_context
+    vale = _vale()
+    page = PaginatedResponse[ValeNegocioCategoriaResponse](
+        total=1,
+        page=1,
+        per_page=20,
+        total_pages=1,
+        data=[
+            ValeNegocioCategoriaResponse(
+                vale=vale,
+                negocio=_negocio(vale),
+                categoria=_categoria(vale),
+            )
+        ],
+    )
+    with patch.object(ValeService, "list", new=AsyncMock(return_value=page)):
+        response = client.get("/vales/")
+    assert response.status_code == 200
+    item = response.json()["data"][0]
+    assert set(item) == {"vale", "negocio", "categoria"}
+    assert item["negocio"]["id"] == str(vale.negocio_id)
+    assert item["categoria"]["id"] == str(vale.categoria_id)
+
+
 def test_get_delega_al_servicio(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
     client, _, db_session = route_context
     vale = _vale()
-    with patch.object(ValeService, "get", new=AsyncMock(return_value=vale)) as service:
+    negocio = _negocio(vale)
+    detail = ValeDetailResponseAudit(
+        vale=vale,
+        negocio=NegocioSucursalesResponseAudit(
+            negocio=negocio,
+            sucursales=[Sucursal(nombre="Sucursal Centro", negocio_id=negocio.id)],
+        ),
+        categoria=_categoria(vale),
+    )
+    with patch.object(
+        ValeService,
+        "get_detail",
+        new=AsyncMock(return_value=detail),
+    ) as service:
         response = client.get(f"/vales/{vale.id}")
     assert response.status_code == 200
+    body = response.json()
+    assert body["vale"]["id"] == str(vale.id)
+    assert body["negocio"]["negocio"]["id"] == str(negocio.id)
+    assert len(body["negocio"]["sucursales"]) == 1
+    assert body["categoria"]["id"] == str(vale.categoria_id)
     service.assert_awaited_once_with(db_session, vale.id)
 
 

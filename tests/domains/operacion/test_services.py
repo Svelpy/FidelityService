@@ -10,6 +10,7 @@ from app.domains.movimientos_puntos.models import MovimientoPuntos
 from app.domains.operacion.models import Operacion
 from app.domains.operacion.schemas import OperacionCreate
 from app.domains.operacion.services import OperacionService
+from app.domains.sucursal.models import Sucursal
 from app.domains.sucursal.services import SucursalService
 from app.domains.users.models import User
 from app.domains.users.schemas import UserRegistrationData
@@ -291,10 +292,28 @@ async def test_list_devuelve_operaciones_visibles_paginadas() -> None:
         config_punto_id=uuid4(),
         sucursal_id=uuid4(),
     )
+    recipient = _client()
+    recipient.id = operation.receptor_id
+    recipient.apellidos = "Pérez López"
+    issuer = User(
+        id=operation.emisor_id,
+        nombre="María",
+        apellidos="Gómez Rojas",
+        ci="87654321",
+        telefono="71234568",
+        role=Role.CAJERO,
+        genero=Genero.F,
+        password_hash="hash",
+    )
+    branch = Sucursal(
+        id=operation.sucursal_id,
+        nombre="Sucursal Central",
+        negocio_id=uuid4(),
+    )
     count_result = MagicMock()
     count_result.scalar_one.return_value = 1
     rows_result = MagicMock()
-    rows_result.scalars.return_value.all.return_value = [operation]
+    rows_result.all.return_value = [(operation, recipient, issuer, branch)]
     session = _session()
     session.execute.side_effect = [count_result, rows_result]
 
@@ -312,6 +331,11 @@ async def test_list_devuelve_operaciones_visibles_paginadas() -> None:
     assert page.total == 1
     assert len(page.data) == 1
     assert page.data[0].id == operation.id
+    assert page.data[0].receptor.id == recipient.id
+    assert page.data[0].receptor.apellidos == "Pérez López"
+    assert page.data[0].emisor.id == issuer.id
+    assert page.data[0].emisor.role is Role.CAJERO
+    assert page.data[0].sucursal.nombre == "Sucursal Central"
     count_statement = session.execute.await_args_list[0].args[0]
     rows_statement = session.execute.await_args_list[1].args[0]
     for statement in (count_statement, rows_statement):

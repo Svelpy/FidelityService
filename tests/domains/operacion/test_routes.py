@@ -13,7 +13,10 @@ from app.domains.auth.dependencies import get_current_principal
 from app.domains.auth.schemas import CurrentUser
 from app.domains.operacion.models import Operacion
 from app.domains.operacion.routes import router
-from app.domains.operacion.schemas import OperacionResponse
+from app.domains.operacion.schemas import (
+    OperacionListResponse,
+    OperacionResponse,
+)
 from app.domains.operacion.services import OperacionService
 from app.shared.enums import Role
 from app.shared.schemas.pagination import PaginatedResponse
@@ -109,12 +112,23 @@ def test_list_delega_filtros_opcionales(
 ) -> None:
     client, principal, session = route_context
     operation = _operation()
-    page = PaginatedResponse[OperacionResponse](
+    item = OperacionListResponse(
+        **OperacionResponse.model_validate(operation).model_dump(),
+        receptor={"id": operation.receptor_id, "nombre": "Carlos", "apellidos": None},
+        emisor={
+            "id": operation.emisor_id,
+            "nombre": "María",
+            "apellidos": "Gómez Rojas",
+            "role": Role.CAJERO,
+        },
+        sucursal={"id": operation.sucursal_id, "nombre": "Sucursal Central"},
+    )
+    page = PaginatedResponse[OperacionListResponse](
         total=1,
         page=1,
         per_page=10,
         total_pages=1,
-        data=[operation],
+        data=[item],
     )
 
     with patch.object(
@@ -134,6 +148,14 @@ def test_list_delega_filtros_opcionales(
         )
 
     assert response.status_code == 200
+    body = response.json()["data"][0]
+    assert body["receptor"] == {
+        "id": str(operation.receptor_id),
+        "nombre": "Carlos",
+        "apellidos": None,
+    }
+    assert body["emisor"]["role"] == "CAJERO"
+    assert body["sucursal"]["nombre"] == "Sucursal Central"
     service.assert_awaited_once_with(
         session,
         principal.id,

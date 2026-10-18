@@ -9,7 +9,7 @@ from app.domains.auth.dependencies import require_permission
 from app.domains.auth.schemas import CurrentUser
 from app.domains.operacion.schemas import (
     OperacionCreate,
-    OperacionResponse,
+    OperacionListResponse,
     OperacionResponseAudit,
 )
 from app.domains.operacion.services import OperacionService
@@ -36,7 +36,7 @@ def _error_responses(*status_codes: int) -> dict[int, dict[str, object]]:
 
 @router.get(
     "/",
-    response_model=PaginatedResponse[OperacionResponse],
+    response_model=PaginatedResponse[OperacionListResponse],
     summary="Listar operaciones visibles",
     responses=_error_responses(401, 403, 422, 500),
 )
@@ -51,7 +51,7 @@ async def list_operaciones(
     emisor_id: Annotated[UUID | None, Query()] = None,
     receptor_id: Annotated[UUID | None, Query()] = None,
     sucursal_id: Annotated[UUID | None, Query()] = None,
-) -> PaginatedResponse[OperacionResponse]:
+) -> PaginatedResponse[OperacionListResponse]:
     return await OperacionService.list(
         db_session,
         current_user.id,

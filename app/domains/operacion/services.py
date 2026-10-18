@@ -5,12 +5,18 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.logging import get_logger
 from app.domains.config_puntos.services import ConfigPuntosService
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.domains.operacion.models import Operacion
-from app.domains.operacion.schemas import OperacionCreate, OperacionResponse
+from app.domains.operacion.schemas import (
+    OperacionCreate,
+    OperacionListResponse,
+    OperacionResponse,
+)
+from app.domains.sucursal.models import Sucursal
 from app.domains.sucursal.services import SucursalService
 from app.domains.users.models import User
 from app.domains.users.services import UserService
@@ -141,7 +147,7 @@ class OperacionService:
         emisor_id: UUID | None = None,
         receptor_id: UUID | None = None,
         sucursal_id: UUID | None = None,
-    ) -> PaginatedResponse[OperacionResponse]:
+    ) -> PaginatedResponse[OperacionListResponse]:
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
                 "La paginación indicada no es válida.",
@@ -162,20 +168,33 @@ class OperacionService:
             select(func.count()).select_from(Operacion).where(*filters)
         )
         total = int(total_result.scalar_one())
+        receptor = aliased(User)
+        emisor = aliased(User)
         result = await db_session.execute(
-            select(Operacion)
+            select(Operacion, receptor, emisor, Sucursal)
+            .join(receptor, receptor.id == Operacion.receptor_id)
+            .join(emisor, emisor.id == Operacion.emisor_id)
+            .join(Sucursal, Sucursal.id == Operacion.sucursal_id)
             .where(*filters)
             .order_by(Operacion.created_at.desc(), Operacion.id)
             .offset((page - 1) * per_page)
             .limit(per_page)
         )
-        operations = list(result.scalars().all())
-        return PaginatedResponse[OperacionResponse](
+        data = [
+            OperacionListResponse(
+                **OperacionResponse.model_validate(operation).model_dump(),
+                receptor=recipient,
+                emisor=issuer,
+                sucursal=branch,
+            )
+            for operation, recipient, issuer, branch in result.all()
+        ]
+        return PaginatedResponse[OperacionListResponse](
             total=total,
             page=page,
             per_page=per_page,
             total_pages=(total + per_page - 1) // per_page,
-            data=operations,
+            data=data,
         )
 
     @classmethod

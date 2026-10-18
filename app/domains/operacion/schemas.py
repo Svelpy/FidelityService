@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.domains.users.schemas import UserRegistrationData
+from app.shared.enums import Role
 from app.shared.services.validators import (
     validator_non_empty_text,
     validator_positive_money,
@@ -76,6 +77,64 @@ class OperacionResponse(BaseModel):
                 "referencia": "Factura 000123",
                 "created_at": "2026-10-12T14:30:00Z",
                 "updated_at": "2026-10-12T14:30:00Z",
+            }
+        },
+    )
+
+
+class OperacionUsuarioResponse(BaseModel):
+    id: UUID
+    nombre: str
+    apellidos: str | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OperacionEmisorResponse(OperacionUsuarioResponse):
+    role: Role
+
+
+class OperacionSucursalResponse(BaseModel):
+    id: UUID
+    nombre: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OperacionListResponse(OperacionResponse):
+    receptor: OperacionUsuarioResponse
+    emisor: OperacionEmisorResponse
+    sucursal: OperacionSucursalResponse
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": "22222222-2222-4222-8222-222222222222",
+                "receptor_id": "11111111-1111-4111-8111-111111111111",
+                "emisor_id": "33333333-3333-4333-8333-333333333333",
+                "total_compra": "150.00",
+                "total_puntos": 15,
+                "config_punto_id": "44444444-4444-4444-8444-444444444444",
+                "sucursal_id": "55555555-5555-4555-8555-555555555555",
+                "referencia": "Factura 000123",
+                "created_at": "2026-10-12T14:30:00Z",
+                "updated_at": "2026-10-12T14:30:00Z",
+                "receptor": {
+                    "id": "11111111-1111-4111-8111-111111111111",
+                    "nombre": "Carlos",
+                    "apellidos": "Pérez López",
+                },
+                "emisor": {
+                    "id": "33333333-3333-4333-8333-333333333333",
+                    "nombre": "María",
+                    "apellidos": "Gómez Rojas",
+                    "role": "CAJERO",
+                },
+                "sucursal": {
+                    "id": "55555555-5555-4555-8555-555555555555",
+                    "nombre": "Sucursal Central",
+                },
             }
         },
     )

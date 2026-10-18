@@ -82,7 +82,12 @@ class Settings(BaseSettings):
             origins = self.PROD_ORIGINS
         if not origins:
             raise ValueError("Debe configurarse PROD_ORIGINS en producción")
-        return [origin.strip() for origin in origins.split(",") if origin.strip()]
+        # El navegador envía el Origin sin "/" final; se normaliza para que coincida.
+        return [
+            origin.strip().rstrip("/")
+            for origin in origins.split(",")
+            if origin.strip().rstrip("/")
+        ]
 
     ACCESS_TOKEN_EXPIRE_MINUTES_DEVELOPMENT: int = Field(default=600, gt=0)
     ACCESS_TOKEN_EXPIRE_MINUTES_STAGING: int = Field(default=15, gt=0)

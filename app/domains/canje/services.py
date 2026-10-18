@@ -10,6 +10,7 @@ from sqlalchemy.orm import aliased
 from app.core.logging import get_logger
 from app.domains.canje.models import Canje
 from app.domains.canje.schemas import (
+    CanjeByCodigoResponse,
     CanjeCreate,
     CanjeDetailResponse,
     CanjeDetailResponseAudit,
@@ -234,6 +235,45 @@ class CanjeService:
             vale=voucher,
             sucursal=branch,
             negocio=business,
+        )
+
+    @classmethod
+    async def get_by_codigo(
+        cls,
+        db_session: AsyncSession,
+        codigo_canje: str,
+        actor_id: UUID,
+        actor_role: Role,
+        actor_sucursal_id: UUID | None,
+    ) -> CanjeByCodigoResponse:
+        result = await db_session.execute(
+            select(Canje, Vale, Negocio, User)
+            .join(Vale, Vale.id == Canje.vale_id)
+            .join(Negocio, Negocio.id == Vale.negocio_id)
+            .join(User, User.id == Canje.cliente_id)
+            .where(
+                Canje.codigo_canje == codigo_canje,
+                Canje.is_deleted.is_(False),
+                *cls._visibility_filters(
+                    actor_id,
+                    actor_role,
+                    actor_sucursal_id,
+                ),
+            )
+        )
+        row = result.one_or_none()
+        if row is None:
+            raise AppException(
+                "Canje no encontrado.",
+                404,
+                ErrorCode.RESOURCE_NOT_FOUND,
+            )
+        redemption, voucher, business, client = row
+        return CanjeByCodigoResponse(
+            canje=redemption,
+            vale=voucher,
+            negocio=business,
+            usuario_cliente=client,
         )
 
     @classmethod
@@ -491,11 +531,11 @@ class CanjeService:
     async def redeem(
         cls,
         db_session: AsyncSession,
-        code: str,
+        redemption_id: UUID,
         actor_id: UUID,
         actor_role: Role,
         actor_sucursal_id: UUID | None,
-    ) -> Canje:
+    ) -> CanjeByCodigoResponse:
         if actor_role not in cls._REDEEMER_ROLES or actor_sucursal_id is None:
             raise AppException(
                 "Solo un usuario operativo asignado a una sucursal puede canjear.",
@@ -504,20 +544,24 @@ class CanjeService:
             )
 
         result = await db_session.execute(
-            select(Canje)
+            select(Canje, Vale, Negocio, User)
+            .join(Vale, Vale.id == Canje.vale_id)
+            .join(Negocio, Negocio.id == Vale.negocio_id)
+            .join(User, User.id == Canje.cliente_id)
             .where(
-                Canje.codigo_canje == code,
+                Canje.id == redemption_id,
                 Canje.is_deleted.is_(False),
             )
-            .with_for_update()
+            .with_for_update(of=Canje)
         )
-        redemption = result.scalar_one_or_none()
-        if redemption is None:
+        row = result.one_or_none()
+        if row is None:
             raise AppException(
-                "Código de canje no válido.",
+                "Canje no encontrado.",
                 404,
                 ErrorCode.RESOURCE_NOT_FOUND,
             )
+        redemption, voucher, business, client = row
         if redemption.status is not EstadoCanje.PENDIENTE:
             raise AppException(
                 "El canje ya no se encuentra pendiente.",
@@ -539,7 +583,6 @@ class CanjeService:
             )
 
         branch = await SucursalService.get(db_session, actor_sucursal_id)
-        voucher = await ValeService.get(db_session, redemption.vale_id)
         if branch.negocio_id != voucher.negocio_id:
             raise AppException(
                 "El vale no puede canjearse en la sucursal del dador.",
@@ -560,7 +603,12 @@ class CanjeService:
             actor_id,
             redemption.cliente_id,
         )
-        return redemption
+        return CanjeByCodigoResponse(
+            canje=redemption,
+            vale=voucher,
+            negocio=business,
+            usuario_cliente=client,
+        )
 
     @classmethod
     async def cancel(

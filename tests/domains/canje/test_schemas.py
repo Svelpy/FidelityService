@@ -4,12 +4,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.domains.canje.schemas import (
+    CanjeByCodigoResponse,
     CanjeCreate,
     CanjeDetailResponse,
     CanjeDetailResponseAudit,
     CanjeListResponse,
     CanjeListResponseAudit,
-    CanjeRedeem,
     CanjeResponse,
     CanjeResponseAudit,
 )
@@ -22,19 +22,6 @@ def test_create_normaliza_referencia() -> None:
     )
 
     assert data.referencia == "Aplicación móvil"
-
-
-@pytest.mark.parametrize(
-    "code",
-    [12345678, "1234567", "123456789", "12A45678", "１２３４５６７８", ""],
-)
-def test_redeem_rechaza_codigo_invalido(code: object) -> None:
-    with pytest.raises(ValidationError):
-        CanjeRedeem(codigo_canje=code)
-
-
-def test_redeem_conserva_ceros_iniciales() -> None:
-    assert CanjeRedeem(codigo_canje="00123456").codigo_canje == "00123456"
 
 
 def test_create_referencia_es_opcional_y_puede_quedar_vacia() -> None:
@@ -61,6 +48,16 @@ def test_response_examples_contienen_todos_los_campos() -> None:
 
     assert set(response_example) == set(CanjeResponse.model_fields)
     assert set(audit_example) == set(CanjeResponseAudit.model_fields)
+
+
+def test_by_codigo_response_reutiliza_examples_hijos() -> None:
+    example = CanjeByCodigoResponse.model_json_schema()["example"]
+
+    assert set(example) == {"canje", "vale", "negocio", "usuario_cliente"}
+    assert example["usuario_cliente"]["id"] == example["canje"]["cliente_id"]
+    assert example["vale"]["id"] == example["canje"]["vale_id"]
+    assert example["negocio"]["id"] == example["vale"]["negocio_id"]
+    CanjeByCodigoResponse.model_validate(example)
 
 
 @pytest.mark.parametrize(

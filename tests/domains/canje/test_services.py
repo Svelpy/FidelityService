@@ -335,6 +335,66 @@ async def test_get_audit_reutiliza_consulta_de_detalle() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_by_codigo_devuelve_canje_visible_con_relaciones() -> None:
+    redemption = _redemption()
+    voucher = Vale(
+        id=redemption.vale_id,
+        total_costo=redemption.total_costo,
+        total_puntos=redemption.total_puntos,
+        nombre="Vale Bs 50",
+        categoria_id=uuid4(),
+        negocio_id=uuid4(),
+    )
+    business = Negocio(
+        id=voucher.negocio_id,
+        nombre="Café Central",
+        tipo=TipoNegocio.SOCIO,
+    )
+    client = _client()
+    client.id = redemption.cliente_id
+    result = MagicMock()
+    result.one_or_none.return_value = (redemption, voucher, business, client)
+    session = _session()
+    session.execute.return_value = result
+
+    item = await CanjeService.get_by_codigo(
+        session,
+        redemption.codigo_canje,
+        redemption.cliente_id,
+        Role.CLIENTE,
+        None,
+    )
+
+    assert item.canje.id == redemption.id
+    assert item.vale.id == voucher.id
+    assert item.negocio.id == business.id
+    assert item.usuario_cliente.id == client.id
+    statement = session.execute.await_args.args[0]
+    parameters = statement.compile().params.values()
+    assert redemption.codigo_canje in parameters
+    assert redemption.cliente_id in parameters
+
+
+@pytest.mark.asyncio
+async def test_get_by_codigo_oculta_canjes_fuera_del_alcance() -> None:
+    result = MagicMock()
+    result.one_or_none.return_value = None
+    session = _session()
+    session.execute.return_value = result
+
+    with pytest.raises(AppException) as error:
+        await CanjeService.get_by_codigo(
+            session,
+            "00123456",
+            uuid4(),
+            Role.CLIENTE,
+            None,
+        )
+
+    assert error.value.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_create_copia_vale_descuenta_puntos_y_registra_movimiento() -> None:
     session = _session()
     client = _client(points=700)
@@ -476,29 +536,34 @@ async def test_redeem_confirma_sin_modificar_saldo_ni_registrar_movimiento() -> 
         negocio_id=business_id,
     )
     voucher.id = redemption.vale_id
+    business = Negocio(
+        id=business_id,
+        nombre="Negocio",
+        tipo=TipoNegocio.SOCIO,
+    )
     result = MagicMock()
-    result.scalar_one_or_none.return_value = redemption
+    result.one_or_none.return_value = (redemption, voucher, business, client)
     session.execute.return_value = result
 
-    with (
-        patch.object(
-            SucursalService,
-            "get",
-            new=AsyncMock(return_value=branch),
-        ),
-        patch.object(ValeService, "get", new=AsyncMock(return_value=voucher)),
+    with patch.object(
+        SucursalService,
+        "get",
+        new=AsyncMock(return_value=branch),
     ):
         redeemed = await CanjeService.redeem(
             session,
-            redemption.codigo_canje,
+            redemption.id,
             actor_id,
             Role.CAJERO,
             branch_id,
         )
 
-    assert redeemed.status is EstadoCanje.CANJEADO
-    assert redeemed.dador_id == actor_id
-    assert redeemed.sucursal_id == branch_id
+    assert redeemed.canje.status is EstadoCanje.CANJEADO
+    assert redeemed.canje.dador_id == actor_id
+    assert redeemed.canje.sucursal_id == branch_id
+    assert redeemed.vale.id == voucher.id
+    assert redeemed.negocio.id == business.id
+    assert redeemed.usuario_cliente.id == client.id
     assert client.puntos == 700
     movements = [
         call.args[0]
@@ -516,13 +581,18 @@ async def test_redeem_marca_codigo_expirado_sin_descontar() -> None:
         expires_at=datetime.now(timezone.utc) - timedelta(seconds=1)
     )
     result = MagicMock()
-    result.scalar_one_or_none.return_value = redemption
+    result.one_or_none.return_value = (
+        redemption,
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+    )
     session.execute.return_value = result
 
     with pytest.raises(AppException) as error:
         await CanjeService.redeem(
             session,
-            redemption.codigo_canje,
+            redemption.id,
             uuid4(),
             Role.SOCIO,
             uuid4(),
@@ -547,22 +617,26 @@ async def test_redeem_rechaza_sucursal_de_otro_negocio() -> None:
         negocio_id=uuid4(),
     )
     voucher.id = redemption.vale_id
+    business = Negocio(
+        id=voucher.negocio_id,
+        nombre="Negocio",
+        tipo=TipoNegocio.SOCIO,
+    )
+    client = _client()
+    client.id = redemption.cliente_id
     result = MagicMock()
-    result.scalar_one_or_none.return_value = redemption
+    result.one_or_none.return_value = (redemption, voucher, business, client)
     session.execute.return_value = result
 
-    with (
-        patch.object(
-            SucursalService,
-            "get",
-            new=AsyncMock(return_value=branch),
-        ),
-        patch.object(ValeService, "get", new=AsyncMock(return_value=voucher)),
+    with patch.object(
+        SucursalService,
+        "get",
+        new=AsyncMock(return_value=branch),
     ):
         with pytest.raises(AppException) as error:
             await CanjeService.redeem(
                 session,
-                redemption.codigo_canje,
+                redemption.id,
                 uuid4(),
                 Role.CAJERO,
                 branch.id,

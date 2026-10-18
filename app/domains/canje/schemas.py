@@ -10,7 +10,6 @@ from app.domains.users.schemas import UserResponse, UserResponseAudit
 from app.domains.vale.schemas import ValeResponse, ValeResponseAudit
 from app.shared.enums import EstadoCanje
 from app.shared.services.validators import (
-    validator_redemption_code,
     validator_text,
 )
 
@@ -37,20 +36,6 @@ class CanjeCreate(BaseModel):
                 "referencia": "Solicitud desde la aplicación móvil",
             }
         },
-    )
-
-
-class CanjeRedeem(BaseModel):
-    codigo_canje: str = Field(min_length=8, max_length=8)
-
-    @field_validator("codigo_canje", mode="before")
-    @classmethod
-    def validate_codigo_canje(cls, value: object) -> str:
-        return validator_redemption_code(value)
-
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={"example": {"codigo_canje": "00123456"}},
     )
 
 
@@ -224,6 +209,34 @@ class CanjeListResponseAudit(CanjeListResponse):
                 "vale": ValeResponseAudit.model_json_schema()["example"],
                 "sucursal": SucursalResponseAudit.model_json_schema()["example"],
                 "negocio": NegocioResponseAudit.model_json_schema()["example"],
+            }
+        },
+    )
+
+
+class CanjeByCodigoResponse(BaseModel):
+    canje: CanjeResponse
+    vale: ValeResponse
+    negocio: NegocioResponse
+    usuario_cliente: UserResponse
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "canje": CanjeResponse.model_json_schema()["example"],
+                "vale": {
+                    **ValeResponse.model_json_schema()["example"],
+                    "id": CanjeResponse.model_json_schema()["example"]["vale_id"],
+                },
+                "negocio": {
+                    **NegocioResponse.model_json_schema()["example"],
+                    "id": ValeResponse.model_json_schema()["example"]["negocio_id"],
+                },
+                "usuario_cliente": {
+                    **UserResponse.model_json_schema()["example"],
+                    "id": CanjeResponse.model_json_schema()["example"]["cliente_id"],
+                },
             }
         },
     )

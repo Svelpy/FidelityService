@@ -1,20 +1,21 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.domains.auth.dependencies import require_permission, require_role
 from app.domains.auth.schemas import CurrentUser
 from app.domains.canje.schemas import (
+    CanjeByCodigoResponse,
     CanjeCreate,
     CanjeDetailResponse,
     CanjeDetailResponseAudit,
     CanjeExpireResponse,
     CanjeListResponse,
-    CanjeRedeem,
     CanjeResponseAudit,
+    CanjeResponse,
 )
 from app.domains.canje.services import CanjeService
 from app.shared.enums import Action, EstadoCanje, Module, Role
@@ -157,22 +158,48 @@ async def expire_canjes(
 
 
 @router.post(
-    "/redeem",
-    response_model=CanjeResponseAudit,
-    summary="Confirmar un canje mediante su código",
+    "/{canje_id}/redeem",
+    response_model=CanjeByCodigoResponse,
+    summary="Confirmar un canje mediante su identificador",
     responses=_error_responses(401, 403, 404, 409, 422, 500),
 )
 async def redeem_canje(
-    data: CanjeRedeem,
+    canje_id: UUID,
     current_user: Annotated[
         CurrentUser,
         Depends(require_permission(Module.CANJE, Action.UPDATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> CanjeResponseAudit:
+) -> CanjeByCodigoResponse:
     return await CanjeService.redeem(
         db_session,
-        data.codigo_canje,
+        canje_id,
+        current_user.id,
+        current_user.role,
+        current_user.sucursal_id,
+    )
+
+
+@router.get(
+    "/codigo/{codigo_canje}",
+    response_model=CanjeByCodigoResponse,
+    summary="Consultar canje por código",
+    responses=_error_responses(401, 403, 404, 422, 500),
+)
+async def get_canje_by_codigo(
+    codigo_canje: Annotated[
+        str,
+        Path(min_length=8, max_length=8, pattern=r"^[0-9]{8}$"),
+    ],
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_permission(Module.CANJE, Action.READ)),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> CanjeByCodigoResponse:
+    return await CanjeService.get_by_codigo(
+        db_session,
+        codigo_canje,
         current_user.id,
         current_user.role,
         current_user.sucursal_id,
@@ -227,7 +254,7 @@ async def get_canje_audit(
 
 @router.post(
     "/{canje_id}/cancel",
-    response_model=CanjeResponseAudit,
+    response_model=CanjeResponse,
     summary="Cancelar canje pendiente",
     responses=_error_responses(401, 403, 404, 409, 422, 500),
 )

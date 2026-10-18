@@ -10,13 +10,13 @@ from app.domains.canje.models import Canje
 from app.domains.movimientos_puntos.models import MovimientoPuntos
 from app.domains.movimientos_puntos.schemas import (
     MovimientoPuntosDetailResponse,
-    MovimientoPuntosResponseAudit,
+    MovimientoPuntosListMeResponse,
+    MovimientoPuntosListResponse,
 )
 from app.domains.negocio.models import Negocio
 from app.domains.operacion.models import Operacion
 from app.domains.sucursal.models import Sucursal
 from app.domains.users.models import User
-from app.domains.users.services import UserService
 from app.domains.vale.models import Vale
 from app.shared.enums import Role, TipoMovimiento
 from app.shared.errors.codes import ErrorCode
@@ -111,14 +111,14 @@ class MovimientoPuntosService:
         )
 
     @staticmethod
-    async def list_for_user(
+    async def list_me(
         db_session: AsyncSession,
         user_id: UUID,
         *,
         page: int = 1,
         per_page: int = 20,
         movement_type: TipoMovimiento | None = None,
-    ) -> PaginatedResponse[MovimientoPuntosResponseAudit]:
+    ) -> PaginatedResponse[MovimientoPuntosListMeResponse]:
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
                 "La paginación indicada no es válida.",
@@ -137,46 +137,116 @@ class MovimientoPuntosService:
             select(func.count()).select_from(MovimientoPuntos).where(*filters)
         )
         total = int(total_result.scalar_one())
+        origin_movement = aliased(MovimientoPuntos)
+        redemption_id = func.coalesce(
+            MovimientoPuntos.canje_id,
+            origin_movement.canje_id,
+        )
         result = await db_session.execute(
-            select(MovimientoPuntos)
+            select(MovimientoPuntos, Operacion, Canje, Vale)
+            .select_from(MovimientoPuntos)
+            .outerjoin(
+                origin_movement,
+                MovimientoPuntos.movimiento_origen_id == origin_movement.id,
+            )
+            .outerjoin(Operacion, MovimientoPuntos.operacion_id == Operacion.id)
+            .outerjoin(Canje, redemption_id == Canje.id)
+            .outerjoin(Vale, Vale.id == Canje.vale_id)
             .where(*filters)
             .order_by(MovimientoPuntos.created_at.desc(), MovimientoPuntos.id)
             .offset((page - 1) * per_page)
             .limit(per_page)
         )
-        movements = list(result.scalars().all())
-        return PaginatedResponse[MovimientoPuntosResponseAudit](
+        items = [
+            MovimientoPuntosListMeResponse(
+                movimiento=movement,
+                operacion=operation,
+                canje=redemption,
+                vale=voucher,
+            )
+            for movement, operation, redemption, voucher in result.all()
+        ]
+        return PaginatedResponse[MovimientoPuntosListMeResponse](
             total=total,
             page=page,
             per_page=per_page,
             total_pages=(total + per_page - 1) // per_page,
-            data=movements,
+            data=items,
         )
 
     @classmethod
-    async def list_by_user_id(
+    async def list(
         cls,
         db_session: AsyncSession,
-        user_id: UUID,
         actor_role: Role,
         *,
         page: int = 1,
         per_page: int = 20,
+        user_id: UUID | None = None,
         movement_type: TipoMovimiento | None = None,
-    ) -> PaginatedResponse[MovimientoPuntosResponseAudit]:
+    ) -> PaginatedResponse[MovimientoPuntosListResponse]:
         if actor_role not in cls._ROLES_ALLOWED_TO_QUERY_USERS:
             raise AppException(
-                "No tienes permisos para consultar movimientos de otro usuario.",
+                "No tienes permisos para consultar movimientos de usuarios.",
                 403,
                 ErrorCode.PERMISSION_DENIED,
             )
-        await UserService.get(db_session, user_id)
-        return await cls.list_for_user(
-            db_session,
-            user_id,
+        if page < 1 or per_page < 1 or per_page > 100:
+            raise AppException(
+                "La paginación indicada no es válida.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+            )
+
+        filters = [
+            MovimientoPuntos.is_deleted.is_(False),
+        ]
+        if user_id is not None:
+            filters.append(MovimientoPuntos.usuario_id == user_id)
+        if movement_type is not None:
+            filters.append(MovimientoPuntos.tipo_movimiento == movement_type)
+
+        total_result = await db_session.execute(
+            select(func.count()).select_from(MovimientoPuntos).where(*filters)
+        )
+        total = int(total_result.scalar_one())
+        origin_movement = aliased(MovimientoPuntos)
+        redemption_id = func.coalesce(
+            MovimientoPuntos.canje_id,
+            origin_movement.canje_id,
+        )
+        result = await db_session.execute(
+            select(MovimientoPuntos, User, Operacion, Canje, Vale)
+            .select_from(MovimientoPuntos)
+            .join(User, User.id == MovimientoPuntos.usuario_id)
+            .outerjoin(
+                origin_movement,
+                MovimientoPuntos.movimiento_origen_id == origin_movement.id,
+            )
+            .outerjoin(Operacion, MovimientoPuntos.operacion_id == Operacion.id)
+            .outerjoin(Canje, redemption_id == Canje.id)
+            .outerjoin(Vale, Vale.id == Canje.vale_id)
+            .where(*filters)
+            .order_by(MovimientoPuntos.created_at.desc(), MovimientoPuntos.id)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+        items = [
+            MovimientoPuntosListResponse(
+                movimiento=movement,
+                cliente=client,
+                operacion=operation,
+                canje=redemption,
+                vale=voucher,
+            )
+            for movement, client, operation, redemption, voucher in result.all()
+        ]
+        return PaginatedResponse[MovimientoPuntosListResponse](
+            total=total,
             page=page,
             per_page=per_page,
-            movement_type=movement_type,
+            total_pages=(total + per_page - 1) // per_page,
+            data=items,
         )
 
     @classmethod

@@ -1,17 +1,19 @@
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 
+from app.domains.canje.models import Canje
 from app.domains.movimientos_puntos.models import MovimientoPuntos
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.domains.negocio.models import Negocio
 from app.domains.operacion.models import Operacion
 from app.domains.sucursal.models import Sucursal
 from app.domains.users.models import User
-from app.domains.users.services import UserService
-from app.shared.enums import Genero, Role, TipoMovimiento, TipoNegocio
+from app.domains.vale.models import Vale
+from app.shared.enums import EstadoCanje, Genero, Role, TipoMovimiento, TipoNegocio
 from app.shared.errors.exceptions import AppException
 
 
@@ -233,73 +235,106 @@ def test_register_adjustment_repone_saldo_y_conserva_movimiento_origen() -> None
 
 
 @pytest.mark.asyncio
-async def test_list_for_user_devuelve_historial_paginado() -> None:
+async def test_list_administrativo_devuelve_relaciones_y_aplica_filtros() -> None:
     session = _async_session()
     movement = _movement()
+    client = _user()
+    client.id = movement.usuario_id
+    operation = Operacion(
+        id=movement.operacion_id,
+        receptor_id=client.id,
+        emisor_id=uuid4(),
+        total_compra=Decimal("100.00"),
+        total_puntos=movement.puntos,
+        config_punto_id=uuid4(),
+        sucursal_id=uuid4(),
+    )
     total_result = MagicMock()
     total_result.scalar_one.return_value = 1
     rows_result = MagicMock()
-    rows_result.scalars.return_value.all.return_value = [movement]
+    rows_result.all.return_value = [(movement, client, operation, None, None)]
     session.execute.side_effect = [total_result, rows_result]
 
-    page = await MovimientoPuntosService.list_for_user(
+    page = await MovimientoPuntosService.list(
         session,
-        movement.usuario_id,
+        Role.ADMIN,
         page=1,
         per_page=20,
+        user_id=client.id,
         movement_type=TipoMovimiento.ACUMULA,
     )
 
     assert page.total == 1
     assert page.total_pages == 1
     assert len(page.data) == 1
-    assert page.data[0].id == movement.id
-    assert page.data[0].tipo_movimiento is TipoMovimiento.ACUMULA
+    assert page.data[0].movimiento.id == movement.id
+    assert page.data[0].cliente.id == client.id
+    assert page.data[0].operacion is not None
+    assert page.data[0].operacion.id == operation.id
+    assert page.data[0].canje is None
+    assert page.data[0].vale is None
+    parameters = session.execute.await_args_list[1].args[0].compile().params.values()
+    assert client.id in parameters
+    assert TipoMovimiento.ACUMULA in parameters
 
 
 @pytest.mark.asyncio
-async def test_list_by_user_id_rechaza_cliente() -> None:
+async def test_list_me_devuelve_movimiento_con_canje_y_vale() -> None:
+    session = _async_session()
+    user_id = uuid4()
+    voucher = Vale(
+        total_costo=Decimal("50.00"),
+        total_puntos=500,
+        nombre="Vale",
+        categoria_id=uuid4(),
+        negocio_id=uuid4(),
+    )
+    redemption = Canje(
+        cliente_id=user_id,
+        dador_id=None,
+        vale_id=voucher.id,
+        status=EstadoCanje.PENDIENTE,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        codigo_canje="00123456",
+        sucursal_id=None,
+        total_puntos=voucher.total_puntos,
+        total_costo=voucher.total_costo,
+        referencia=None,
+        config_punto_id=uuid4(),
+    )
+    movement = MovimientoPuntos(
+        usuario_id=user_id,
+        tipo_movimiento=TipoMovimiento.CANJE,
+        puntos=500,
+        operacion_id=None,
+        canje_id=redemption.id,
+    )
+    total_result = MagicMock()
+    total_result.scalar_one.return_value = 1
+    rows_result = MagicMock()
+    rows_result.all.return_value = [(movement, None, redemption, voucher)]
+    session.execute.side_effect = [total_result, rows_result]
+
+    page = await MovimientoPuntosService.list_me(session, user_id)
+
+    assert page.total == 1
+    assert page.data[0].movimiento.id == movement.id
+    assert page.data[0].operacion is None
+    assert page.data[0].canje is not None
+    assert page.data[0].canje.id == redemption.id
+    assert page.data[0].vale is not None
+    assert page.data[0].vale.id == voucher.id
+
+
+@pytest.mark.asyncio
+async def test_list_administrativo_rechaza_cliente() -> None:
     session = _async_session()
 
     with pytest.raises(AppException) as error:
-        await MovimientoPuntosService.list_by_user_id(
+        await MovimientoPuntosService.list(
             session,
-            uuid4(),
             Role.CLIENTE,
         )
 
     assert error.value.status_code == 403
     session.execute.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_list_by_user_id_valida_usuario_y_delega_historial() -> None:
-    session = _async_session()
-    user_id = uuid4()
-    expected_page = MagicMock()
-
-    with (
-        patch.object(UserService, "get", new=AsyncMock()) as get_user,
-        patch.object(
-            MovimientoPuntosService,
-            "list_for_user",
-            new=AsyncMock(return_value=expected_page),
-        ) as list_for_user,
-    ):
-        page = await MovimientoPuntosService.list_by_user_id(
-            session,
-            user_id,
-            Role.CAJERO,
-            page=2,
-            per_page=10,
-        )
-
-    assert page is expected_page
-    get_user.assert_awaited_once_with(session, user_id)
-    list_for_user.assert_awaited_once_with(
-        session,
-        user_id,
-        page=2,
-        per_page=10,
-        movement_type=None,
-    )

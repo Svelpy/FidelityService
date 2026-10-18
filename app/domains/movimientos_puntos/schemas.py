@@ -7,6 +7,8 @@ from app.domains.canje.schemas import CanjeResponse
 from app.domains.negocio.schemas import NegocioResponse
 from app.domains.operacion.schemas import OperacionResponse
 from app.domains.sucursal.schemas import SucursalResponse
+from app.domains.users.schemas import UserResponse
+from app.domains.vale.schemas import ValeResponse
 from app.shared.enums import TipoMovimiento
 
 
@@ -86,6 +88,46 @@ class MovimientoPuntosDetailResponse(BaseModel):
                 "operacion": OperacionResponse.model_json_schema()["example"],
                 "sucursal": SucursalResponse.model_json_schema()["example"],
                 "negocio": NegocioResponse.model_json_schema()["example"],
+            }
+        },
+    )
+
+
+class MovimientoPuntosListResponse(BaseModel):
+    movimiento: MovimientoPuntosResponse
+    cliente: UserResponse
+    operacion: OperacionResponse | None
+    canje: CanjeResponse | None
+    vale: ValeResponse | None
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "movimiento": MovimientoPuntosResponse.model_json_schema()["example"],
+                "cliente": UserResponse.model_json_schema()["example"],
+                "operacion": OperacionResponse.model_json_schema()["example"],
+                "canje": CanjeResponse.model_json_schema()["example"],
+                "vale": ValeResponse.model_json_schema()["example"],
+            }
+        },
+    )
+
+
+class MovimientoPuntosListMeResponse(BaseModel):
+    movimiento: MovimientoPuntosResponse
+    operacion: OperacionResponse | None
+    canje: CanjeResponse | None
+    vale: ValeResponse | None
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "movimiento": MovimientoPuntosResponse.model_json_schema()["example"],
+                "operacion": OperacionResponse.model_json_schema()["example"],
+                "canje": CanjeResponse.model_json_schema()["example"],
+                "vale": ValeResponse.model_json_schema()["example"],
             }
         },
     )

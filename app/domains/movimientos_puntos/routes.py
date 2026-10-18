@@ -9,7 +9,8 @@ from app.domains.auth.dependencies import require_permission
 from app.domains.auth.schemas import CurrentUser
 from app.domains.movimientos_puntos.schemas import (
     MovimientoPuntosDetailResponse,
-    MovimientoPuntosResponseAudit,
+    MovimientoPuntosListMeResponse,
+    MovimientoPuntosListResponse,
 )
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.shared.enums import Action, Module, TipoMovimiento
@@ -37,7 +38,7 @@ def _error_responses(*status_codes: int) -> dict[int, dict[str, object]]:
 
 @router.get(
     "/me",
-    response_model=PaginatedResponse[MovimientoPuntosResponseAudit],
+    response_model=PaginatedResponse[MovimientoPuntosListMeResponse],
     summary="Listar mis movimientos de puntos",
     responses=_error_responses(401, 403, 422, 500),
 )
@@ -50,8 +51,8 @@ async def list_my_movimientos_puntos(
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
     tipo: Annotated[TipoMovimiento | None, Query()] = None,
-) -> PaginatedResponse[MovimientoPuntosResponseAudit]:
-    return await MovimientoPuntosService.list_for_user(
+) -> PaginatedResponse[MovimientoPuntosListMeResponse]:
+    return await MovimientoPuntosService.list_me(
         db_session,
         current_user.id,
         page=page,
@@ -61,13 +62,12 @@ async def list_my_movimientos_puntos(
 
 
 @router.get(
-    "/usuario/{usuario_id}",
-    response_model=PaginatedResponse[MovimientoPuntosResponseAudit],
-    summary="Listar movimientos de puntos de un usuario",
-    responses=_error_responses(401, 403, 404, 422, 500),
+    "/",
+    response_model=PaginatedResponse[MovimientoPuntosListResponse],
+    summary="Listar movimientos de puntos",
+    responses=_error_responses(401, 403, 422, 500),
 )
-async def list_movimientos_puntos_by_user_id(
-    usuario_id: UUID,
+async def list_movimientos_puntos(
     current_user: Annotated[
         CurrentUser,
         Depends(require_permission(Module.MOVIMIENTOS_PUNTOS, Action.READ)),
@@ -75,14 +75,15 @@ async def list_movimientos_puntos_by_user_id(
     db_session: Annotated[AsyncSession, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
+    usuario_id: Annotated[UUID | None, Query()] = None,
     tipo: Annotated[TipoMovimiento | None, Query()] = None,
-) -> PaginatedResponse[MovimientoPuntosResponseAudit]:
-    return await MovimientoPuntosService.list_by_user_id(
+) -> PaginatedResponse[MovimientoPuntosListResponse]:
+    return await MovimientoPuntosService.list(
         db_session,
-        usuario_id,
         current_user.role,
         page=page,
         per_page=per_page,
+        user_id=usuario_id,
         movement_type=tipo,
     )
 

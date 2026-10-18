@@ -57,7 +57,7 @@ def test_get_me_delega_usuario_actual_y_paginacion(
     client, principal, session = route_context
     with patch.object(
         MovimientoPuntosService,
-        "list_for_user",
+        "list_me",
         new=AsyncMock(return_value=_empty_page(page=2, per_page=10)),
     ) as service:
         response = client.get(
@@ -75,7 +75,7 @@ def test_get_me_delega_usuario_actual_y_paginacion(
     )
 
 
-def test_get_by_user_id_delega_rol_y_paginacion(
+def test_list_administrativo_delega_filtros_y_paginacion(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
     client, principal, session = route_context
@@ -83,19 +83,22 @@ def test_get_by_user_id_delega_rol_y_paginacion(
     user_id = uuid4()
     with patch.object(
         MovimientoPuntosService,
-        "list_by_user_id",
+        "list",
         new=AsyncMock(return_value=_empty_page(page=1, per_page=20)),
     ) as service:
-        response = client.get(f"/movimientos-puntos/usuario/{user_id}")
+        response = client.get(
+            "/movimientos-puntos/",
+            params={"usuario_id": str(user_id), "tipo": "ACUMULA"},
+        )
 
     assert response.status_code == 200
     service.assert_awaited_once_with(
         session,
-        user_id,
         principal.role,
         page=1,
         per_page=20,
-        movement_type=None,
+        user_id=user_id,
+        movement_type=TipoMovimiento.ACUMULA,
     )
 
 

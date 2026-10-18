@@ -435,7 +435,11 @@ class CanjeService:
                 ErrorCode.PERMISSION_DENIED,
             )
 
-        voucher = await ValeService.get(db_session, data.vale_id)
+        voucher = await ValeService.get(
+            db_session,
+            data.vale_id,
+            for_update=True,
+        )
         client = await UserService.get(db_session, actor_id, for_update=True)
         if client.puntos < voucher.total_puntos:
             raise AppException(

@@ -125,7 +125,7 @@ async def update_sucursal(
     "/{sucursal_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Eliminar sucursal",
-    responses=_error_responses(401, 403, 404, 422, 500),
+    responses=_error_responses(401, 403, 404, 409, 422, 500),
 )
 async def delete_sucursal(
     sucursal_id: UUID,

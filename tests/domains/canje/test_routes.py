@@ -271,7 +271,7 @@ def test_list_me_delega_usuario_y_paginacion(
     )
 
 
-def test_get_by_id_devuelve_canje_con_vale_auditados(
+def test_get_by_id_devuelve_200_con_vale_eliminado(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
     client, principal, session = route_context
@@ -297,6 +297,8 @@ def test_get_by_id_devuelve_canje_con_vale_auditados(
     assert response.status_code == 200
     assert response.json()["canje"]["id"] == str(redemption.id)
     assert response.json()["vale"]["id"] == str(redemption.vale_id)
+    assert response.json()["vale"]["nombre"] == "Vale Bs 50"
+    assert "is_deleted" not in response.json()["vale"]
     assert response.json()["usuario_cliente"]["id"] == str(redemption.cliente_id)
     assert response.json()["usuario_cajero_socio"] is None
     assert response.json()["sucursal"] is None
@@ -315,7 +317,9 @@ def test_get_by_codigo_delega_contexto_del_principal(
 ) -> None:
     client, principal, session = route_context
     redemption = _redemption()
+    redemption.status = EstadoCanje.CANCELADO
     voucher = _voucher(redemption)
+    voucher.is_deleted = True
     business = _business(voucher)
     customer = _user(redemption.cliente_id)
     item = CanjeByCodigoResponse(

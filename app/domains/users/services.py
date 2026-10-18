@@ -332,6 +332,7 @@ class UserService:
         include_deleted: bool = False,
         sucursal_id: UUID | None = None,
         role: Role | None = None,
+        order_by_points: bool = False,
     ) -> PaginatedResponse[UserResponse]:
         if page < 1:
             raise AppException(
@@ -359,10 +360,15 @@ class UserService:
         )
         total = int(total_result.scalar_one())
 
+        order_by = (
+            (User.puntos.desc(), User.created_at.desc(), User.id)
+            if order_by_points
+            else (User.created_at.desc(), User.id)
+        )
         result = await db_session.execute(
             select(User)
             .where(*filters)
-            .order_by(User.created_at.desc(), User.id)
+            .order_by(*order_by)
             .offset((page - 1) * per_page)
             .limit(per_page)
         )

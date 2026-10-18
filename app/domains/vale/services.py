@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.logging import get_logger
+from app.domains.canje.models import Canje
 from app.domains.categoria.models import Categoria
 from app.domains.categoria.services import CategoriaService
 from app.domains.config_puntos.services import ConfigPuntosService
@@ -25,6 +26,7 @@ from app.domains.vale.schemas import (
     ValeUpdate,
 )
 from app.integrations.cloudinary import CloudinaryService
+from app.shared.enums import EstadoCanje
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 from app.shared.schemas.pagination import PaginatedResponse
@@ -37,6 +39,32 @@ class ValeService:
     """Consultas y reglas de negocio del dominio de vales."""
 
     _MAX_POINTS = 2_147_483_647
+
+    @staticmethod
+    async def _validate_without_pending_redemptions(
+        db_session: AsyncSession,
+        vale_id: UUID,
+    ) -> None:
+        result = await db_session.execute(
+            select(Canje.id)
+            .where(
+                Canje.vale_id == vale_id,
+                Canje.status == EstadoCanje.PENDIENTE,
+                Canje.is_deleted.is_(False),
+            )
+            .limit(1)
+        )
+        if result.scalar_one_or_none() is not None:
+            raise AppException(
+                "No se puede eliminar el vale porque tiene canjes pendientes.",
+                409,
+                ErrorCode.CONFLICT,
+                {
+                    "vale_id": (
+                        "El vale tiene al menos un canje pendiente asociado."
+                    )
+                },
+            )
 
     @staticmethod
     def _integrity_exception(error: IntegrityError) -> AppException:
@@ -325,6 +353,7 @@ class ValeService:
         actor_id: UUID,
     ) -> Vale:
         vale = await cls.get(db_session, vale_id, for_update=True)
+        await cls._validate_without_pending_redemptions(db_session, vale.id)
         now = datetime.now(timezone.utc)
         vale.is_deleted = True
         vale.deleted_at = now

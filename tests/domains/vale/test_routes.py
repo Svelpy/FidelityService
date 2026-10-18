@@ -206,6 +206,30 @@ def test_update_ignora_campos_no_nullable_vacios_del_form_data(
     }
 
 
+def test_update_categoria_ignora_totales_vacios_del_form_data(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, _, _ = route_context
+    vale = _vale()
+    categoria_id = uuid4()
+
+    with patch.object(ValeService, "update", new=AsyncMock(return_value=vale)) as service:
+        response = client.patch(
+            f"/vales/{vale.id}",
+            data={
+                "categoria_id": str(categoria_id),
+                "total_costo": "",
+                "total_puntos": "",
+            },
+        )
+
+    assert response.status_code == 200
+    submitted = service.await_args.args[2]
+    assert submitted.model_dump(exclude_unset=True) == {
+        "categoria_id": categoria_id,
+    }
+
+
 def test_update_no_ignora_cero_explicito_del_form_data(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:

@@ -130,7 +130,7 @@ async def test_replace_crea_primera_configuracion_con_factores_calculados() -> N
 async def test_replace_cierra_configuracion_anterior() -> None:
     session = _session()
     actor_id = uuid4()
-    active_config = _config()
+    active_config = _config(asignacion_puntos=5)
 
     with patch.object(
         ConfigPuntosService,
@@ -148,6 +148,32 @@ async def test_replace_cierra_configuracion_anterior() -> None:
     assert active_config.updated_at == new_config.start_date
     assert active_config.updated_by == actor_id
     assert new_config.end_date is None
+
+
+@pytest.mark.asyncio
+async def test_replace_rechaza_configuracion_identica_a_la_activa() -> None:
+    session = _session()
+    active_config = _config()
+
+    with patch.object(
+        ConfigPuntosService,
+        "get_active",
+        new=AsyncMock(return_value=active_config),
+    ):
+        with pytest.raises(AppException) as error:
+            await ConfigPuntosService.replace(session, _create_data(), uuid4())
+
+    assert error.value.status_code == 409
+    assert error.value.code == ErrorCode.CONFLICT
+    assert error.value.details == {
+        "config_puntos": (
+            "Los valores enviados deben ser diferentes de la configuración activa."
+        )
+    }
+    assert active_config.status is EstadoConfigPuntos.ACTIVE
+    assert active_config.end_date is None
+    session.add.assert_not_called()
+    session.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio

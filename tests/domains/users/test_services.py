@@ -244,6 +244,26 @@ async def test_list_devuelve_paginacion() -> None:
         parameters = statement.compile().params.values()
         assert sucursal_id in parameters
         assert Role.CAJERO in parameters
+    assert "usuario.puntos DESC" not in str(rows_statement.compile())
+
+
+@pytest.mark.asyncio
+async def test_list_ordena_por_puntos_descendente_cuando_se_solicita() -> None:
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 0
+    rows_result = MagicMock()
+    rows_result.scalars.return_value.all.return_value = []
+    session = _session()
+    session.execute.side_effect = [count_result, rows_result]
+
+    await UserService.list(session, order_by_points=True)
+
+    rows_statement = session.execute.await_args_list[1].args[0]
+    compiled_statement = str(rows_statement.compile())
+    assert "usuario.puntos DESC" in compiled_statement
+    assert compiled_statement.index("usuario.puntos DESC") < compiled_statement.index(
+        "usuario.created_at DESC"
+    )
 
 
 @pytest.mark.asyncio

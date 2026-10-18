@@ -150,6 +150,7 @@ async def list_users(
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
     sucursal_id: Annotated[UUID | None, Query()] = None,
     role: Annotated[Role | None, Query()] = None,
+    order_by_points: Annotated[bool, Query()] = False,
 ) -> PaginatedResponse[UserResponse]:
     return await UserService.list(
         db_session,
@@ -157,6 +158,7 @@ async def list_users(
         per_page=per_page,
         sucursal_id=sucursal_id,
         role=role,
+        order_by_points=order_by_points,
     )
 
 

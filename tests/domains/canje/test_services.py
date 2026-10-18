@@ -244,8 +244,9 @@ async def test_list_for_user_incluye_cliente_o_dador() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_devuelve_canje_y_vale_en_una_consulta() -> None:
+async def test_get_devuelve_canje_historico_aunque_el_vale_este_eliminado() -> None:
     redemption = _redemption()
+    redemption.status = EstadoCanje.CANCELADO
     voucher = Vale(
         id=redemption.vale_id,
         total_costo=redemption.total_costo,
@@ -254,6 +255,7 @@ async def test_get_devuelve_canje_y_vale_en_una_consulta() -> None:
         categoria_id=uuid4(),
         negocio_id=uuid4(),
     )
+    voucher.is_deleted = True
     client = _client()
     client.id = redemption.cliente_id
     business = Negocio(
@@ -285,10 +287,14 @@ async def test_get_devuelve_canje_y_vale_en_una_consulta() -> None:
     assert detail.usuario_cliente.id == client.id
     assert detail.usuario_cajero_socio is None
     assert detail.vale.id == voucher.id
+    assert detail.vale.nombre == voucher.nombre
     assert detail.sucursal is None
     assert detail.negocio.id == business.id
     session.execute.assert_awaited_once()
-    assert "JOIN" in str(session.execute.await_args.args[0].compile())
+    statement = session.execute.await_args.args[0]
+    compiled_statement = str(statement.compile())
+    assert "JOIN" in compiled_statement
+    assert "vale.is_deleted" not in str(statement.whereclause)
 
 
 @pytest.mark.asyncio
@@ -415,7 +421,11 @@ async def test_create_copia_vale_descuenta_puntos_y_registra_movimiento() -> Non
     )
 
     with (
-        patch.object(ValeService, "get", new=AsyncMock(return_value=voucher)),
+        patch.object(
+            ValeService,
+            "get",
+            new=AsyncMock(return_value=voucher),
+        ) as get_voucher,
         patch.object(UserService, "get", new=AsyncMock(return_value=client)),
         patch.object(
             ConfigPuntosService,
@@ -452,6 +462,11 @@ async def test_create_copia_vale_descuenta_puntos_y_registra_movimiento() -> Non
     assert len(movements) == 1
     assert movements[0].tipo_movimiento is TipoMovimiento.CANJE
     assert movements[0].canje_id == redemption.id
+    get_voucher.assert_awaited_once_with(
+        session,
+        voucher.id,
+        for_update=True,
+    )
     session.flush.assert_awaited_once()
     session.commit.assert_awaited_once()
 

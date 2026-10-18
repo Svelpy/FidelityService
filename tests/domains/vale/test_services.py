@@ -343,14 +343,41 @@ async def test_update_reemplaza_imagen_en_la_misma_operacion() -> None:
 async def test_delete_aplica_soft_delete() -> None:
     vale = _vale()
     actor_id = uuid4()
+    session = _session()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session.execute.return_value = result
     with (
         patch.object(ValeService, "get", new=AsyncMock(return_value=vale)),
         patch.object(ValeService, "_commit", new=AsyncMock()),
     ):
-        deleted = await ValeService.delete(MagicMock(), vale.id, actor_id)
+        deleted = await ValeService.delete(session, vale.id, actor_id)
     assert deleted.is_deleted is True
     assert deleted.deleted_by == actor_id
     assert deleted.deleted_at == deleted.updated_at
+
+
+@pytest.mark.asyncio
+async def test_delete_rechaza_vale_con_canje_pendiente() -> None:
+    vale = _vale()
+    session = _session()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = uuid4()
+    session.execute.return_value = result
+
+    with (
+        patch.object(ValeService, "get", new=AsyncMock(return_value=vale)),
+        patch.object(ValeService, "_commit", new=AsyncMock()) as commit,
+    ):
+        with pytest.raises(AppException) as error:
+            await ValeService.delete(session, vale.id, uuid4())
+
+    assert error.value.status_code == 409
+    assert error.value.details == {
+        "vale_id": "El vale tiene al menos un canje pendiente asociado."
+    }
+    assert vale.is_deleted is False
+    commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio

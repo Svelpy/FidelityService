@@ -179,7 +179,8 @@ def test_list_users_permite_roles_autorizados_y_devuelve_paginacion(
     ) as service:
         sucursal_id = uuid4()
         response = client.get(
-            f"/users/?page=1&per_page=10&sucursal_id={sucursal_id}&role=CAJERO"
+            f"/users/?page=1&per_page=10&sucursal_id={sucursal_id}"
+            "&role=CAJERO&order_by_points=true"
         )
 
     assert response.status_code == 200
@@ -189,6 +190,7 @@ def test_list_users_permite_roles_autorizados_y_devuelve_paginacion(
         per_page=10,
         sucursal_id=sucursal_id,
         role=Role.CAJERO,
+        order_by_points=True,
     )
 
 

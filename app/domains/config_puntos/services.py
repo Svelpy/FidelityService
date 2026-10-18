@@ -155,6 +155,31 @@ class ConfigPuntosService:
         )
 
         if active_config is not None:
+            current_values = (
+                active_config.asignacion_bolivianos,
+                active_config.asignacion_puntos,
+                active_config.costo_vale_bolivianos,
+                active_config.costo_vale_puntos,
+            )
+            requested_values = (
+                data.asignacion.bolivianos,
+                data.asignacion.puntos,
+                data.costo_vale.bolivianos,
+                data.costo_vale.puntos,
+            )
+            if current_values == requested_values:
+                raise AppException(
+                    "La configuración de puntos coincide con la configuración activa.",
+                    409,
+                    ErrorCode.CONFLICT,
+                    {
+                        "config_puntos": (
+                            "Los valores enviados deben ser diferentes de la "
+                            "configuración activa."
+                        )
+                    },
+                )
+
             active_config.end_date = now
             active_config.status = EstadoConfigPuntos.INACTIVE
             active_config.updated_at = now

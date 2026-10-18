@@ -14,8 +14,9 @@ from app.domains.auth.schemas import CurrentUser
 from app.domains.operacion.models import Operacion
 from app.domains.operacion.routes import router
 from app.domains.operacion.schemas import (
+    OperacionDetailResponse,
+    OperacionDetailResponseAudit,
     OperacionListResponse,
-    OperacionResponse,
 )
 from app.domains.operacion.services import OperacionService
 from app.shared.enums import Role
@@ -90,18 +91,46 @@ def test_get_delega_alcance_del_principal(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
     client, principal, session = route_context
-    operation = _operation()
+    detail = OperacionDetailResponse.model_validate(
+        OperacionDetailResponse.model_json_schema()["example"]
+    )
     with patch.object(
         OperacionService,
         "get",
-        new=AsyncMock(return_value=operation),
+        new=AsyncMock(return_value=detail),
     ) as service:
-        response = client.get(f"/operaciones/{operation.id}")
+        response = client.get(f"/operaciones/{detail.operacion.id}")
 
     assert response.status_code == 200
+    assert response.json()["negocio"]["id"] == str(detail.negocio.id)
     service.assert_awaited_once_with(
         session,
-        operation.id,
+        detail.operacion.id,
+        principal.id,
+        principal.role,
+    )
+
+
+def test_get_audit_delega_alcance_del_principal(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, principal, session = route_context
+    principal.role = Role.ADMIN
+    detail = OperacionDetailResponseAudit.model_validate(
+        OperacionDetailResponseAudit.model_json_schema()["example"]
+    )
+    with patch.object(
+        OperacionService,
+        "get_audit",
+        new=AsyncMock(return_value=detail),
+    ) as service:
+        response = client.get(f"/operaciones/{detail.operacion.id}/audit")
+
+    assert response.status_code == 200
+    assert response.json()["operacion"]["deleted_at"] is not None
+    service.assert_awaited_once_with(
+        session,
+        detail.operacion.id,
         principal.id,
         principal.role,
     )
@@ -112,16 +141,8 @@ def test_list_delega_filtros_opcionales(
 ) -> None:
     client, principal, session = route_context
     operation = _operation()
-    item = OperacionListResponse(
-        **OperacionResponse.model_validate(operation).model_dump(),
-        receptor={"id": operation.receptor_id, "nombre": "Carlos", "apellidos": None},
-        emisor={
-            "id": operation.emisor_id,
-            "nombre": "María",
-            "apellidos": "Gómez Rojas",
-            "role": Role.CAJERO,
-        },
-        sucursal={"id": operation.sucursal_id, "nombre": "Sucursal Central"},
+    item = OperacionListResponse.model_validate(
+        OperacionListResponse.model_json_schema()["example"]
     )
     page = PaginatedResponse[OperacionListResponse](
         total=1,
@@ -149,13 +170,10 @@ def test_list_delega_filtros_opcionales(
 
     assert response.status_code == 200
     body = response.json()["data"][0]
-    assert body["receptor"] == {
-        "id": str(operation.receptor_id),
-        "nombre": "Carlos",
-        "apellidos": None,
-    }
+    assert body["operacion"]["id"] == str(item.operacion.id)
+    assert body["receptor"]["id"] == str(item.receptor.id)
     assert body["emisor"]["role"] == "CAJERO"
-    assert body["sucursal"]["nombre"] == "Sucursal Central"
+    assert body["sucursal"]["nombre"] == item.sucursal.nombre
     service.assert_awaited_once_with(
         session,
         principal.id,

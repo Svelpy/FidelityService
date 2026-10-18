@@ -6,6 +6,10 @@ from pydantic import ValidationError
 
 from app.domains.operacion.schemas import (
     OperacionCreate,
+    OperacionDetailResponse,
+    OperacionDetailResponseAudit,
+    OperacionListResponse,
+    OperacionListResponseAudit,
     OperacionResponse,
     OperacionResponseAudit,
 )
@@ -101,3 +105,35 @@ def test_response_examples_contienen_todos_los_campos() -> None:
     assert set(create_example) == create_fields
     assert set(response_example) == response_fields
     assert set(audit_example) == audit_fields
+
+
+@pytest.mark.parametrize(
+    ("schema", "fields"),
+    [
+        (
+            OperacionListResponse,
+            {"operacion", "receptor", "emisor", "sucursal"},
+        ),
+        (
+            OperacionListResponseAudit,
+            {"operacion", "receptor", "emisor", "sucursal"},
+        ),
+        (
+            OperacionDetailResponse,
+            {"operacion", "receptor", "emisor", "sucursal", "negocio"},
+        ),
+        (
+            OperacionDetailResponseAudit,
+            {"operacion", "receptor", "emisor", "sucursal", "negocio"},
+        ),
+    ],
+)
+def test_responses_compuestas_tienen_estructura_y_ejemplo_validos(
+    schema: type[OperacionListResponse],
+    fields: set[str],
+) -> None:
+    example = schema.model_json_schema()["example"]
+
+    assert set(schema.model_fields) == fields
+    assert set(example) == fields
+    schema.model_validate(example)

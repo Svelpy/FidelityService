@@ -10,11 +10,13 @@ from sqlalchemy.orm import aliased
 from app.core.logging import get_logger
 from app.domains.config_puntos.services import ConfigPuntosService
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
+from app.domains.negocio.models import Negocio
 from app.domains.operacion.models import Operacion
 from app.domains.operacion.schemas import (
     OperacionCreate,
+    OperacionDetailResponse,
+    OperacionDetailResponseAudit,
     OperacionListResponse,
-    OperacionResponse,
 )
 from app.domains.sucursal.models import Sucursal
 from app.domains.sucursal.services import SucursalService
@@ -119,21 +121,78 @@ class OperacionService:
         operation_id: UUID,
         actor_id: UUID,
         actor_role: Role,
-    ) -> Operacion:
+    ) -> OperacionDetailResponse:
+        operation, recipient, issuer, branch, business = (
+            await cls._get_detail_records(
+                db_session,
+                operation_id,
+                actor_id,
+                actor_role,
+            )
+        )
+        return OperacionDetailResponse(
+            operacion=operation,
+            receptor=recipient,
+            emisor=issuer,
+            sucursal=branch,
+            negocio=business,
+        )
+
+    @classmethod
+    async def get_audit(
+        cls,
+        db_session: AsyncSession,
+        operation_id: UUID,
+        actor_id: UUID,
+        actor_role: Role,
+    ) -> OperacionDetailResponseAudit:
+        operation, recipient, issuer, branch, business = (
+            await cls._get_detail_records(
+                db_session,
+                operation_id,
+                actor_id,
+                actor_role,
+            )
+        )
+        return OperacionDetailResponseAudit(
+            operacion=operation,
+            receptor=recipient,
+            emisor=issuer,
+            sucursal=branch,
+            negocio=business,
+        )
+
+    @classmethod
+    async def _get_detail_records(
+        cls,
+        db_session: AsyncSession,
+        operation_id: UUID,
+        actor_id: UUID,
+        actor_role: Role,
+    ) -> tuple[Operacion, User, User, Sucursal, Negocio]:
         filters = [
             Operacion.id == operation_id,
             Operacion.is_deleted.is_(False),
             *cls._visibility_filters(actor_id, actor_role),
         ]
-        result = await db_session.execute(select(Operacion).where(*filters))
-        operation = result.scalar_one_or_none()
-        if operation is None:
+        receptor = aliased(User)
+        emisor = aliased(User)
+        result = await db_session.execute(
+            select(Operacion, receptor, emisor, Sucursal, Negocio)
+            .join(receptor, receptor.id == Operacion.receptor_id)
+            .join(emisor, emisor.id == Operacion.emisor_id)
+            .join(Sucursal, Sucursal.id == Operacion.sucursal_id)
+            .join(Negocio, Negocio.id == Sucursal.negocio_id)
+            .where(*filters)
+        )
+        row = result.one_or_none()
+        if row is None:
             raise AppException(
                 "Operacion no encontrada.",
                 404,
                 ErrorCode.RESOURCE_NOT_FOUND,
             )
-        return operation
+        return row
 
     @classmethod
     async def list(
@@ -182,7 +241,7 @@ class OperacionService:
         )
         data = [
             OperacionListResponse(
-                **OperacionResponse.model_validate(operation).model_dump(),
+                operacion=operation,
                 receptor=recipient,
                 emisor=issuer,
                 sucursal=branch,

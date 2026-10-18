@@ -5,15 +5,17 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.domains.auth.dependencies import require_permission
+from app.domains.auth.dependencies import require_permission, require_role
 from app.domains.auth.schemas import CurrentUser
 from app.domains.operacion.schemas import (
     OperacionCreate,
+    OperacionDetailResponse,
+    OperacionDetailResponseAudit,
     OperacionListResponse,
     OperacionResponseAudit,
 )
 from app.domains.operacion.services import OperacionService
-from app.shared.enums import Action, Module
+from app.shared.enums import Action, Module, Role
 from app.shared.schemas.errors import ErrorResponse
 from app.shared.schemas.pagination import PaginatedResponse
 
@@ -66,7 +68,7 @@ async def list_operaciones(
 
 @router.get(
     "/{operation_id}",
-    response_model=OperacionResponseAudit,
+    response_model=OperacionDetailResponse,
     summary="Consultar operación",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -77,8 +79,30 @@ async def get_operacion(
         Depends(require_permission(Module.OPERACION, Action.READ)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> OperacionResponseAudit:
+) -> OperacionDetailResponse:
     return await OperacionService.get(
+        db_session,
+        operation_id,
+        current_user.id,
+        current_user.role,
+    )
+
+
+@router.get(
+    "/{operation_id}/audit",
+    response_model=OperacionDetailResponseAudit,
+    summary="Consultar operación con auditoría",
+    responses=_error_responses(401, 403, 404, 422, 500),
+)
+async def get_operacion_audit(
+    operation_id: UUID,
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_role(Role.SUPERADMIN, Role.OWNER, Role.ADMIN)),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> OperacionDetailResponseAudit:
+    return await OperacionService.get_audit(
         db_session,
         operation_id,
         current_user.id,

@@ -7,6 +7,7 @@ import pytest
 from app.domains.config_puntos.models import ConfigPuntos
 from app.domains.config_puntos.services import ConfigPuntosService
 from app.domains.movimientos_puntos.models import MovimientoPuntos
+from app.domains.negocio.models import Negocio
 from app.domains.operacion.models import Operacion
 from app.domains.operacion.schemas import OperacionCreate
 from app.domains.operacion.services import OperacionService
@@ -15,7 +16,7 @@ from app.domains.sucursal.services import SucursalService
 from app.domains.users.models import User
 from app.domains.users.schemas import UserRegistrationData
 from app.domains.users.services import UserService
-from app.shared.enums import Genero, Role, TipoMovimiento
+from app.shared.enums import Genero, Role, TipoMovimiento, TipoNegocio
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 
@@ -267,7 +268,7 @@ async def test_create_requiere_receptor_cliente() -> None:
 @pytest.mark.asyncio
 async def test_get_oculta_operacion_fuera_del_alcance() -> None:
     result = MagicMock()
-    result.scalar_one_or_none.return_value = None
+    result.one_or_none.return_value = None
     session = _session()
     session.execute.return_value = result
 
@@ -280,6 +281,58 @@ async def test_get_oculta_operacion_fuera_del_alcance() -> None:
         )
 
     assert error.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_devuelve_operacion_con_relaciones_y_negocio() -> None:
+    operation = Operacion(
+        receptor_id=uuid4(),
+        emisor_id=uuid4(),
+        total_compra=Decimal("100.00"),
+        total_puntos=10,
+        config_punto_id=uuid4(),
+        sucursal_id=uuid4(),
+    )
+    recipient = _client()
+    recipient.id = operation.receptor_id
+    issuer = User(
+        id=operation.emisor_id,
+        nombre="María",
+        ci="87654321",
+        telefono="71234568",
+        role=Role.CAJERO,
+        genero=Genero.F,
+        password_hash="hash",
+    )
+    business = Negocio(nombre="Café Central", tipo=TipoNegocio.SOCIO)
+    branch = Sucursal(
+        id=operation.sucursal_id,
+        nombre="Sucursal Central",
+        negocio_id=business.id,
+    )
+    result = MagicMock()
+    result.one_or_none.return_value = (
+        operation,
+        recipient,
+        issuer,
+        branch,
+        business,
+    )
+    session = _session()
+    session.execute.return_value = result
+
+    detail = await OperacionService.get(
+        session,
+        operation.id,
+        operation.receptor_id,
+        Role.ADMIN,
+    )
+
+    assert detail.operacion.id == operation.id
+    assert detail.receptor.id == recipient.id
+    assert detail.emisor.id == issuer.id
+    assert detail.sucursal.id == branch.id
+    assert detail.negocio.id == business.id
 
 
 @pytest.mark.asyncio
@@ -330,7 +383,7 @@ async def test_list_devuelve_operaciones_visibles_paginadas() -> None:
 
     assert page.total == 1
     assert len(page.data) == 1
-    assert page.data[0].id == operation.id
+    assert page.data[0].operacion.id == operation.id
     assert page.data[0].receptor.id == recipient.id
     assert page.data[0].receptor.apellidos == "Pérez López"
     assert page.data[0].emisor.id == issuer.id

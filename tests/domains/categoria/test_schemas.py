@@ -69,5 +69,6 @@ def test_categoria_response_audit_incluye_ejemplo_json_schema() -> None:
     example = CategoriaResponseAudit.model_json_schema()["example"]
 
     assert example["created_by"] == "22222222-2222-4222-8222-222222222222"
-    assert example["is_deleted"] is False
-    assert example["deleted_at"] is None
+    assert example["is_deleted"] is True
+    assert example["deleted_at"] is not None
+    assert example["deleted_by"] is not None

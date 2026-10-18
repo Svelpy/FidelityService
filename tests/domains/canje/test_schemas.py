@@ -80,8 +80,8 @@ def test_canje_detail_responses_reutilizan_examples_hijos(
         "sucursal",
         "negocio",
     }
-    assert example["usuario_cajero_socio"] is None
-    assert example["sucursal"] is None
+    assert example["usuario_cajero_socio"]["role"] == "CAJERO"
+    assert example["sucursal"]["id"] == example["canje"]["sucursal_id"]
     schema.model_validate(example)
 
 
@@ -95,5 +95,5 @@ def test_canje_list_responses_reutilizan_examples_hijos(
     example = schema.model_json_schema()["example"]
 
     assert set(example) == {"canje", "vale", "sucursal", "negocio"}
-    assert example["sucursal"] is None
+    assert example["sucursal"]["id"] == example["canje"]["sucursal_id"]
     schema.model_validate(example)

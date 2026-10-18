@@ -98,7 +98,7 @@ class NegocioUpdate(BaseModel):
             "example": {
                 "nombre": "Café Central Equipetrol",
                 "tipo": "SOCIO",
-                "descripcion": None,
+                "descripcion": "Cafetería y restaurante de especialidad.",
                 "telefono": "72123456",
             }
         },
@@ -152,9 +152,9 @@ class NegocioResponseAudit(NegocioResponse):
                 "created_by": "22222222-2222-4222-8222-222222222222",
                 "updated_at": "2026-10-11T15:00:00Z",
                 "updated_by": "22222222-2222-4222-8222-222222222222",
-                "is_deleted": False,
-                "deleted_at": None,
-                "deleted_by": None,
+                "is_deleted": True,
+                "deleted_at": "2026-10-13T10:15:00Z",
+                "deleted_by": "33333333-3333-4333-8333-333333333333",
             }
         },
     )

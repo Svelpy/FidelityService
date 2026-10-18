@@ -83,12 +83,12 @@ class CanjeResponse(BaseModel):
             "example": {
                 "id": "33333333-3333-4333-8333-333333333333",
                 "cliente_id": "44444444-4444-4444-8444-444444444444",
-                "dador_id": None,
+                "dador_id": "55555555-5555-4555-8555-555555555555",
                 "vale_id": "11111111-1111-4111-8111-111111111111",
-                "status": "PENDIENTE",
+                "status": "CANJEADO",
                 "expires_at": "2026-11-11T14:30:00Z",
                 "codigo_canje": "00123456",
-                "sucursal_id": None,
+                "sucursal_id": "22222222-2222-4222-8222-222222222222",
                 "total_puntos": 500,
                 "total_costo": "50.00",
                 "referencia": "Solicitud desde la aplicación móvil",
@@ -115,12 +115,12 @@ class CanjeResponseAudit(CanjeResponse):
             "example": {
                 "id": "33333333-3333-4333-8333-333333333333",
                 "cliente_id": "44444444-4444-4444-8444-444444444444",
-                "dador_id": None,
+                "dador_id": "55555555-5555-4555-8555-555555555555",
                 "vale_id": "11111111-1111-4111-8111-111111111111",
-                "status": "PENDIENTE",
+                "status": "CANJEADO",
                 "expires_at": "2026-11-11T14:30:00Z",
                 "codigo_canje": "00123456",
-                "sucursal_id": None,
+                "sucursal_id": "22222222-2222-4222-8222-222222222222",
                 "total_puntos": 500,
                 "total_costo": "50.00",
                 "referencia": "Solicitud desde la aplicación móvil",
@@ -129,9 +129,9 @@ class CanjeResponseAudit(CanjeResponse):
                 "created_by": "44444444-4444-4444-8444-444444444444",
                 "updated_at": "2026-10-12T14:30:00Z",
                 "updated_by": "44444444-4444-4444-8444-444444444444",
-                "is_deleted": False,
-                "deleted_at": None,
-                "deleted_by": None,
+                "is_deleted": True,
+                "deleted_at": "2026-10-13T10:15:00Z",
+                "deleted_by": "44444444-4444-4444-8444-444444444444",
             }
         },
     )
@@ -151,9 +151,13 @@ class CanjeDetailResponse(BaseModel):
             "example": {
                 "canje": CanjeResponse.model_json_schema()["example"],
                 "usuario_cliente": UserResponse.model_json_schema()["example"],
-                "usuario_cajero_socio": None,
+                "usuario_cajero_socio": {
+                    **UserResponse.model_json_schema()["example"],
+                    "id": "55555555-5555-4555-8555-555555555555",
+                    "role": "CAJERO",
+                },
                 "vale": ValeResponse.model_json_schema()["example"],
-                "sucursal": None,
+                "sucursal": SucursalResponse.model_json_schema()["example"],
                 "negocio": NegocioResponse.model_json_schema()["example"],
             }
         },
@@ -174,9 +178,13 @@ class CanjeDetailResponseAudit(CanjeDetailResponse):
             "example": {
                 "canje": CanjeResponseAudit.model_json_schema()["example"],
                 "usuario_cliente": UserResponseAudit.model_json_schema()["example"],
-                "usuario_cajero_socio": None,
+                "usuario_cajero_socio": {
+                    **UserResponseAudit.model_json_schema()["example"],
+                    "id": "55555555-5555-4555-8555-555555555555",
+                    "role": "CAJERO",
+                },
                 "vale": ValeResponseAudit.model_json_schema()["example"],
-                "sucursal": None,
+                "sucursal": SucursalResponseAudit.model_json_schema()["example"],
                 "negocio": NegocioResponseAudit.model_json_schema()["example"],
             }
         },
@@ -195,7 +203,7 @@ class CanjeListResponse(BaseModel):
             "example": {
                 "canje": CanjeResponse.model_json_schema()["example"],
                 "vale": ValeResponse.model_json_schema()["example"],
-                "sucursal": None,
+                "sucursal": SucursalResponse.model_json_schema()["example"],
                 "negocio": NegocioResponse.model_json_schema()["example"],
             }
         },
@@ -214,7 +222,7 @@ class CanjeListResponseAudit(CanjeListResponse):
             "example": {
                 "canje": CanjeResponseAudit.model_json_schema()["example"],
                 "vale": ValeResponseAudit.model_json_schema()["example"],
-                "sucursal": None,
+                "sucursal": SucursalResponseAudit.model_json_schema()["example"],
                 "negocio": NegocioResponseAudit.model_json_schema()["example"],
             }
         },

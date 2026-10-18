@@ -79,4 +79,6 @@ def test_sucursal_responses_incluyen_ejemplos_json_schema() -> None:
 
     assert response_example["url_ubicacion"].startswith("https://")
     assert audit_example["created_by"] == "33333333-3333-4333-8333-333333333333"
-    assert audit_example["is_deleted"] is False
+    assert audit_example["is_deleted"] is True
+    assert audit_example["deleted_at"] is not None
+    assert audit_example["deleted_by"] is not None

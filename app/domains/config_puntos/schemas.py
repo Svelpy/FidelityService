@@ -59,7 +59,7 @@ class ConfigPuntosResponse(BaseModel):
             "example": {
                 "id": "11111111-1111-4111-8111-111111111111",
                 "start_date": "2026-10-12T14:30:00Z",
-                "end_date": None,
+                "end_date": "2026-12-31T23:59:59Z",
                 "asignacion_bolivianos": 100,
                 "asignacion_puntos": 10,
                 "costo_vale_bolivianos": 50,
@@ -86,7 +86,7 @@ class ConfigPuntosResponseAudit(ConfigPuntosResponse):
             "example": {
                 "id": "11111111-1111-4111-8111-111111111111",
                 "start_date": "2026-10-12T14:30:00Z",
-                "end_date": None,
+                "end_date": "2026-12-31T23:59:59Z",
                 "asignacion_bolivianos": 100,
                 "asignacion_puntos": 10,
                 "costo_vale_bolivianos": 50,
@@ -96,9 +96,9 @@ class ConfigPuntosResponseAudit(ConfigPuntosResponse):
                 "created_by": "22222222-2222-4222-8222-222222222222",
                 "updated_at": "2026-10-12T14:30:00Z",
                 "updated_by": "22222222-2222-4222-8222-222222222222",
-                "is_deleted": False,
-                "deleted_at": None,
-                "deleted_by": None,
+                "is_deleted": True,
+                "deleted_at": "2026-10-13T10:15:00Z",
+                "deleted_by": "33333333-3333-4333-8333-333333333333",
             }
         },
     )

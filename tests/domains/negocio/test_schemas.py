@@ -66,7 +66,9 @@ def test_negocio_responses_incluyen_ejemplos_json_schema() -> None:
 
     assert response_example["image_url"].startswith("https://res.cloudinary.com/")
     assert audit_example["created_by"] == "22222222-2222-4222-8222-222222222222"
-    assert audit_example["is_deleted"] is False
+    assert audit_example["is_deleted"] is True
+    assert audit_example["deleted_at"] is not None
+    assert audit_example["deleted_by"] is not None
 
 
 def test_negocio_sucursales_response_incluye_ejemplo_valido() -> None:
@@ -85,5 +87,7 @@ def test_negocio_sucursales_response_audit_incluye_ejemplo_valido() -> None:
 
     assert isinstance(response.negocio, NegocioResponseAudit)
     assert isinstance(response.sucursales[0], SucursalResponseAudit)
-    assert response.negocio.is_deleted is False
-    assert response.sucursales[0].is_deleted is False
+    assert response.negocio.is_deleted is True
+    assert response.negocio.deleted_at is not None
+    assert response.sucursales[0].is_deleted is True
+    assert response.sucursales[0].deleted_at is not None

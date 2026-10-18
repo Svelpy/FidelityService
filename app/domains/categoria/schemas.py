@@ -80,7 +80,7 @@ class CategoriaUpdate(BaseModel):
             "example": {
                 "nombre": "Gastronomía y bebidas",
                 "icon_number": 4,
-                "descripcion": None,
+                "descripcion": "Restaurantes, cafeterías y bebidas.",
             }
         },
     )
@@ -132,9 +132,9 @@ class CategoriaResponseAudit(CategoriaResponse):
                 "created_by": "22222222-2222-4222-8222-222222222222",
                 "updated_at": "2026-10-10T15:00:00Z",
                 "updated_by": "22222222-2222-4222-8222-222222222222",
-                "is_deleted": False,
-                "deleted_at": None,
-                "deleted_by": None,
+                "is_deleted": True,
+                "deleted_at": "2026-10-13T10:15:00Z",
+                "deleted_by": "33333333-3333-4333-8333-333333333333",
             }
         },
     )

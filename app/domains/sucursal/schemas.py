@@ -114,7 +114,7 @@ class SucursalUpdate(BaseModel):
             "example": {
                 "nombre": "Sucursal Equipetrol Norte",
                 "negocio_id": "11111111-1111-4111-8111-111111111111",
-                "direccion": None,
+                "direccion": "Av. San Martín 123, Equipetrol",
                 "url_ubicacion": "https://maps.google.com/?q=-17.76,-63.19",
                 "telefono": "72123456",
             }
@@ -170,9 +170,9 @@ class SucursalResponseAudit(SucursalResponse):
                 "created_by": "33333333-3333-4333-8333-333333333333",
                 "updated_at": "2026-10-12T12:00:00Z",
                 "updated_by": "33333333-3333-4333-8333-333333333333",
-                "is_deleted": False,
-                "deleted_at": None,
-                "deleted_by": None,
+                "is_deleted": True,
+                "deleted_at": "2026-10-13T10:15:00Z",
+                "deleted_by": "33333333-3333-4333-8333-333333333333",
             }
         },
     )

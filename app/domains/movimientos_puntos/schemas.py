@@ -29,8 +29,8 @@ class MovimientoPuntosResponse(BaseModel):
                 "tipo_movimiento": "ACUMULA",
                 "puntos": 150,
                 "operacion_id": "33333333-3333-4333-8333-333333333333",
-                "canje_id": None,
-                "movimiento_origen_id": None,
+                "canje_id": "44444444-4444-4444-8444-444444444444",
+                "movimiento_origen_id": "55555555-5555-4555-8555-555555555555",
                 "created_at": "2026-10-12T14:30:00Z",
                 "updated_at": "2026-10-12T14:30:00Z",
             }
@@ -56,15 +56,15 @@ class MovimientoPuntosResponseAudit(MovimientoPuntosResponse):
                 "tipo_movimiento": "ACUMULA",
                 "puntos": 150,
                 "operacion_id": "33333333-3333-4333-8333-333333333333",
-                "canje_id": None,
-                "movimiento_origen_id": None,
+                "canje_id": "44444444-4444-4444-8444-444444444444",
+                "movimiento_origen_id": "55555555-5555-4555-8555-555555555555",
                 "created_at": "2026-10-12T14:30:00Z",
                 "created_by": "44444444-4444-4444-8444-444444444444",
                 "updated_at": "2026-10-12T14:30:00Z",
                 "updated_by": "44444444-4444-4444-8444-444444444444",
-                "is_deleted": False,
-                "deleted_at": None,
-                "deleted_by": None,
+                "is_deleted": True,
+                "deleted_at": "2026-10-13T10:15:00Z",
+                "deleted_by": "66666666-6666-4666-8666-666666666666",
             }
         },
     )
@@ -76,3 +76,16 @@ class MovimientoPuntosDetailResponse(BaseModel):
     operacion: OperacionResponse | None
     sucursal: SucursalResponse | None
     negocio: NegocioResponse | None
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "data": MovimientoPuntosResponse.model_json_schema()["example"],
+                "canje": CanjeResponse.model_json_schema()["example"],
+                "operacion": OperacionResponse.model_json_schema()["example"],
+                "sucursal": SucursalResponse.model_json_schema()["example"],
+                "negocio": NegocioResponse.model_json_schema()["example"],
+            }
+        },
+    )

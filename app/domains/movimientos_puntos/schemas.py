@@ -96,6 +96,7 @@ class MovimientoPuntosDetailResponse(BaseModel):
 class MovimientoPuntosListResponse(BaseModel):
     movimiento: MovimientoPuntosResponse
     cliente: UserResponse
+    emisor: UserResponse | None
     operacion: OperacionResponse | None
     canje: CanjeResponse | None
     vale: ValeResponse | None
@@ -106,6 +107,12 @@ class MovimientoPuntosListResponse(BaseModel):
             "example": {
                 "movimiento": MovimientoPuntosResponse.model_json_schema()["example"],
                 "cliente": UserResponse.model_json_schema()["example"],
+                "emisor": {
+                    **UserResponse.model_json_schema()["example"],
+                    "id": "77777777-7777-4777-8777-777777777777",
+                    "nombre": "Cajero emisor",
+                    "role": "CAJERO",
+                },
                 "operacion": OperacionResponse.model_json_schema()["example"],
                 "canje": CanjeResponse.model_json_schema()["example"],
                 "vale": ValeResponse.model_json_schema()["example"],

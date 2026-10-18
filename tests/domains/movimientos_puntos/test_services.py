@@ -240,10 +240,13 @@ async def test_list_administrativo_devuelve_relaciones_y_aplica_filtros() -> Non
     movement = _movement()
     client = _user()
     client.id = movement.usuario_id
+    emitter = _user()
+    emitter.id = uuid4()
+    emitter.role = Role.CAJERO
     operation = Operacion(
         id=movement.operacion_id,
         receptor_id=client.id,
-        emisor_id=uuid4(),
+        emisor_id=emitter.id,
         total_compra=Decimal("100.00"),
         total_puntos=movement.puntos,
         config_punto_id=uuid4(),
@@ -252,7 +255,9 @@ async def test_list_administrativo_devuelve_relaciones_y_aplica_filtros() -> Non
     total_result = MagicMock()
     total_result.scalar_one.return_value = 1
     rows_result = MagicMock()
-    rows_result.all.return_value = [(movement, client, operation, None, None)]
+    rows_result.all.return_value = [
+        (movement, client, emitter, operation, None, None)
+    ]
     session.execute.side_effect = [total_result, rows_result]
 
     page = await MovimientoPuntosService.list(
@@ -269,6 +274,8 @@ async def test_list_administrativo_devuelve_relaciones_y_aplica_filtros() -> Non
     assert len(page.data) == 1
     assert page.data[0].movimiento.id == movement.id
     assert page.data[0].cliente.id == client.id
+    assert page.data[0].emisor is not None
+    assert page.data[0].emisor.id == emitter.id
     assert page.data[0].operacion is not None
     assert page.data[0].operacion.id == operation.id
     assert page.data[0].canje is None

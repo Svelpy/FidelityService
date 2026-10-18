@@ -215,15 +215,18 @@ class MovimientoPuntosService:
             MovimientoPuntos.canje_id,
             origin_movement.canje_id,
         )
+        client = aliased(User)
+        emitter = aliased(User)
         result = await db_session.execute(
-            select(MovimientoPuntos, User, Operacion, Canje, Vale)
+            select(MovimientoPuntos, client, emitter, Operacion, Canje, Vale)
             .select_from(MovimientoPuntos)
-            .join(User, User.id == MovimientoPuntos.usuario_id)
+            .join(client, client.id == MovimientoPuntos.usuario_id)
             .outerjoin(
                 origin_movement,
                 MovimientoPuntos.movimiento_origen_id == origin_movement.id,
             )
             .outerjoin(Operacion, MovimientoPuntos.operacion_id == Operacion.id)
+            .outerjoin(emitter, emitter.id == Operacion.emisor_id)
             .outerjoin(Canje, redemption_id == Canje.id)
             .outerjoin(Vale, Vale.id == Canje.vale_id)
             .where(*filters)
@@ -235,11 +238,12 @@ class MovimientoPuntosService:
             MovimientoPuntosListResponse(
                 movimiento=movement,
                 cliente=client,
+                emisor=emitter,
                 operacion=operation,
                 canje=redemption,
                 vale=voucher,
             )
-            for movement, client, operation, redemption, voucher in result.all()
+            for movement, client, emitter, operation, redemption, voucher in result.all()
         ]
         return PaginatedResponse[MovimientoPuntosListResponse](
             total=total,

@@ -1,0 +1,33 @@
+# Secretos: las variables se configuran en Dokploy
+.env
+.env.*
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Git e IDEs
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Cachés de Python y pruebas
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# No necesarios en la imagen de producción
+tests/
+docs/
+requirements-dev.txt
+pytest.ini
+Procfile
+*.md
+Dockerfile
+.dockerignore

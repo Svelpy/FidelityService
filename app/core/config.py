@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal, Self
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 Environment = Literal["development","staging","production","test"]
 
 class Settings(BaseSettings):
@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     APP_DESCRIPTION: str = """Lorep Ipsum"""
     ENVIRONMENT: Environment = "development"
+    # Si no se define, la documentación (Swagger/ReDoc) sigue a DEBUG.
+    ENABLE_DOCS: bool | None = None
     # =================================
     # Regional
     # =================================
@@ -123,6 +125,20 @@ class Settings(BaseSettings):
     @property
     def DEBUG(self) -> bool:
         return self.ENVIRONMENT == "development"
+
+    @property
+    def DOCS_ENABLED(self) -> bool:
+        if self.ENABLE_DOCS is None:
+            return self.DEBUG
+        return self.ENABLE_DOCS
+
+    @field_validator("ENABLE_DOCS", mode="before")
+    @classmethod
+    def validate_enable_docs(cls, value: object) -> object:
+        # Una variable vacía (ENABLE_DOCS=) equivale a no definirla.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> Self:

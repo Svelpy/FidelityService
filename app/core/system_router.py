@@ -30,8 +30,8 @@ logger = get_logger(__name__)
 
 @router.get("/", include_in_schema=False)
 async def root(settings: Settings = Depends(get_settings)):
-    """Redirige automáticamente a la documentación interactiva en desarrollo"""
-    if settings.DEBUG:
+    """Redirige automáticamente a la documentación interactiva cuando está habilitada"""
+    if settings.DOCS_ENABLED:
         return RedirectResponse(url="/docs")
     return {"message": settings.APP_NAME, "status": "active"}
 

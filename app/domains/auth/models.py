@@ -1,7 +1,15 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, Index, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlmodel import Field
 
 from app.core.base_model import BaseModel
@@ -90,5 +98,57 @@ class AuthSession(BaseModel, table=True):
     ip_address: str | None = Field(
         default=None,
         max_length=45,
+        nullable=True,
+    )
+
+
+class PasswordResetToken(BaseModel, table=True):
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (
+        CheckConstraint(
+            "expires_at > created_at",
+            name="ck_password_reset_tokens_expiration_after_creation",
+        ),
+        CheckConstraint(
+            "used_at IS NULL OR revoked_at IS NULL",
+            name="ck_password_reset_tokens_used_or_revoked",
+        ),
+        Index(
+            "ux_password_reset_tokens_token_hash",
+            "token_hash",
+            unique=True,
+        ),
+        Index(
+            "ux_password_reset_tokens_user_id_pending",
+            "user_id",
+            unique=True,
+            postgresql_where=text(
+                "used_at IS NULL AND revoked_at IS NULL AND is_deleted = false"
+            ),
+        ),
+        Index("ix_password_reset_tokens_expires_at", "expires_at"),
+        {"schema": "public"},
+    )
+
+    user_id: UUID = Field(
+        foreign_key="public.usuario.id",
+        nullable=False,
+    )
+    token_hash: str = Field(
+        sa_type=String(64),
+        nullable=False,
+    )
+    expires_at: datetime = Field(
+        sa_type=DateTime(timezone=True),
+        nullable=False,
+    )
+    used_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),
+        nullable=True,
+    )
+    revoked_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),
         nullable=True,
     )

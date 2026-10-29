@@ -1,6 +1,6 @@
 """Importa todos los modelos persistentes para registrar su metadata."""
 
-from app.domains.auth.models import AuthSession
+from app.domains.auth.models import AuthSession, PasswordResetToken
 from app.domains.canje.models import Canje
 from app.domains.categoria.models import Categoria
 from app.domains.config_puntos.models import ConfigPuntos
@@ -21,6 +21,7 @@ __all__ = [
     "MovimientoPuntos",
     "Negocio",
     "Operacion",
+    "PasswordResetToken",
     "Sucursal",
     "User",
     "Vale",

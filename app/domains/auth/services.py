@@ -1,4 +1,5 @@
 import asyncio
+import html
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
@@ -11,20 +12,31 @@ from app.core.security import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
     create_csrf_token,
+    create_one_time_token,
     create_refresh_token,
+    hash_one_time_token,
+    hash_password,
     hash_refresh_token,
     verify_csrf_token,
     verify_password,
 )
-from app.domains.auth.models import AuthSession
-from app.domains.auth.schemas import AuthTokens, UserLogin
+from app.domains.auth.models import AuthSession, PasswordResetToken
+from app.domains.auth.schemas import (
+    AuthTokens,
+    ForgotPassword,
+    ResetPassword,
+    UserLogin,
+)
 from app.domains.users.models import User
+from app.integrations.resend import ResendService
 from app.shared.enums import Role
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 
 
 logger = get_logger(__name__)
+
+PASSWORD_RESET_FRONTEND_PATH = "/reset-password"
 
 
 class AuthService:
@@ -412,3 +424,176 @@ class AuthService:
             auth_session.user_id,
             auth_session.family_id,
         )
+
+    @staticmethod
+    def _build_password_reset_email(
+        nombre: str,
+        reset_url: str,
+        expire_minutes: int,
+    ) -> tuple[str, str]:
+        """Construye el contenido HTML y de texto del correo de recuperación."""
+        safe_nombre = html.escape(nombre)
+        safe_url = html.escape(reset_url, quote=True)
+        html_content = (
+            f"<p>Hola {safe_nombre},</p>"
+            "<p>Recibimos una solicitud para restablecer tu contraseña.</p>"
+            f'<p><a href="{safe_url}">Restablecer contraseña</a></p>'
+            f"<p>Este enlace vence en {expire_minutes} minutos y solo puede "
+            "usarse una vez.</p>"
+            "<p>Si no solicitaste este cambio, puedes ignorar este correo.</p>"
+        )
+        text_content = (
+            f"Hola {nombre},\n\n"
+            "Recibimos una solicitud para restablecer tu contraseña.\n\n"
+            f"Restablece tu contraseña aquí: {reset_url}\n\n"
+            f"Este enlace vence en {expire_minutes} minutos y solo puede "
+            "usarse una vez.\n\n"
+            "Si no solicitaste este cambio, puedes ignorar este correo."
+        )
+        return html_content, text_content
+
+    @staticmethod
+    async def request_password_reset(
+        db_session: AsyncSession,
+        data: ForgotPassword,
+        settings: Settings,
+    ) -> None:
+        """Genera un token de recuperación y lo envía al email del usuario.
+
+        No revela si la cédula existe o si el usuario tiene email registrado.
+        """
+        result = await db_session.execute(
+            select(User)
+            .where(
+                User.ci == data.ci,
+                User.is_deleted.is_(False),
+            )
+            .with_for_update()
+        )
+        user = result.scalar_one_or_none()
+        if user is None or not user.email:
+            await db_session.rollback()
+            logger.info("Recuperación de contraseña sin destinatario disponible")
+            return
+
+        now = datetime.now(timezone.utc)
+        await db_session.execute(
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.used_at.is_(None),
+                PasswordResetToken.revoked_at.is_(None),
+                PasswordResetToken.is_deleted.is_(False),
+            )
+            .values(
+                revoked_at=now,
+                updated_at=now,
+                updated_by=user.id,
+            )
+        )
+
+        token = create_one_time_token()
+        reset_token = PasswordResetToken(
+            user_id=user.id,
+            token_hash=hash_one_time_token(token),
+            expires_at=now
+            + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
+            created_at=now,
+            created_by=user.id,
+            updated_at=now,
+            updated_by=user.id,
+            is_deleted=False,
+        )
+        db_session.add(reset_token)
+        await AuthService._commit(db_session)
+
+        reset_url = (
+            f"{settings.AUTH_FRONTEND_URL.rstrip('/')}"
+            f"{PASSWORD_RESET_FRONTEND_PATH}?token={token}"
+        )
+        html_content, text_content = AuthService._build_password_reset_email(
+            user.nombre,
+            reset_url,
+            settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES,
+        )
+        try:
+            await ResendService.send_email(
+                settings,
+                to=user.email,
+                subject="Restablece tu contraseña",
+                html=html_content,
+                text=text_content,
+                idempotency_key=f"password-reset/{reset_token.id}",
+            )
+        except Exception:
+            logger.exception(
+                "No se pudo enviar el correo de recuperación: user_id=%s",
+                user.id,
+            )
+            return
+
+        logger.info("Correo de recuperación enviado: user_id=%s", user.id)
+
+    @staticmethod
+    async def reset_password_with_token(
+        db_session: AsyncSession,
+        data: ResetPassword,
+    ) -> None:
+        """Restablece la contraseña con un token válido y cierra sus sesiones."""
+        invalid_token_error = AppException(
+            "El enlace es inválido o expiró.",
+            400,
+            ErrorCode.PASSWORD_RESET_INVALID,
+        )
+        now = datetime.now(timezone.utc)
+
+        result = await db_session.execute(
+            select(PasswordResetToken)
+            .where(
+                PasswordResetToken.token_hash == hash_one_time_token(data.token),
+                PasswordResetToken.is_deleted.is_(False),
+            )
+            .with_for_update()
+        )
+        reset_token = result.scalar_one_or_none()
+        if (
+            reset_token is None
+            or reset_token.used_at is not None
+            or reset_token.revoked_at is not None
+            or reset_token.expires_at <= now
+        ):
+            await db_session.rollback()
+            raise invalid_token_error
+
+        user_result = await db_session.execute(
+            select(User)
+            .where(
+                User.id == reset_token.user_id,
+                User.is_deleted.is_(False),
+            )
+            .with_for_update()
+        )
+        user = user_result.scalar_one_or_none()
+        if user is None:
+            await db_session.rollback()
+            raise invalid_token_error
+
+        reset_token.used_at = now
+        reset_token.updated_at = now
+        reset_token.updated_by = user.id
+
+        user.password_hash = await asyncio.to_thread(
+            hash_password,
+            data.new_password,
+        )
+        user.updated_at = now
+        user.updated_by = user.id
+
+        await AuthService.revoke_for_user(
+            db_session,
+            user.id,
+            "password_reset",
+        )
+        await AuthService._commit(db_session)
+
+        logger.info("Contraseña restablecida por token: user_id=%s", user.id)

@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     RESEND_FROM_EMAIL: str = "Svelpy Support Team <no-reply@mail.svelpy.com>"
     RESEND_REPLY_TO: str = "soporte@svelpy.com"
     AUTH_FRONTEND_URL: str ="http://localhost:5173"
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = Field(default=30, gt=0)
     # =================================
     # CORS
     # =================================
@@ -91,7 +92,7 @@ class Settings(BaseSettings):
             if origin.strip().rstrip("/")
         ]
 
-    ACCESS_TOKEN_EXPIRE_MINUTES_DEVELOPMENT: int = Field(default=600, gt=0)
+    ACCESS_TOKEN_EXPIRE_MINUTES_DEVELOPMENT: int = Field(default=10, gt=0)
     ACCESS_TOKEN_EXPIRE_MINUTES_STAGING: int = Field(default=15, gt=0)
     ACCESS_TOKEN_EXPIRE_MINUTES_PRODUCTION: int = Field(default=15, gt=0)
     @property

@@ -5,7 +5,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.shared.enums import Role
-from app.shared.services.validators import validator_ci, validator_password
+from app.shared.services.validators import (
+    validator_ci,
+    validator_non_empty_text,
+    validator_password,
+)
 
 
 class UserLogin(BaseModel):
@@ -25,6 +29,53 @@ class UserLogin(BaseModel):
         return validator_password(value)
 
     model_config = ConfigDict(extra="forbid")
+
+
+class ForgotPassword(BaseModel):
+    """Solicitud de recuperación de contraseña mediante la cédula."""
+
+    ci: str = Field(min_length=6, max_length=20)
+
+    @field_validator("ci", mode="before")
+    @classmethod
+    def validate_ci(cls, value: object) -> str:
+        return validator_ci(value)
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "ci": "1234567",
+            }
+        },
+    )
+
+
+class ResetPassword(BaseModel):
+    """Restablecimiento de contraseña con el token recibido por correo."""
+
+    token: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=6, max_length=20)
+
+    @field_validator("token", mode="before")
+    @classmethod
+    def validate_token(cls, value: object) -> str:
+        return validator_non_empty_text(value)
+
+    @field_validator("new_password", mode="before")
+    @classmethod
+    def validate_new_password(cls, value: object) -> str:
+        return validator_password(value)
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "token": "<token-recibido-por-correo>",
+                "new_password": "NuevaClave123",
+            }
+        },
+    )
 
 
 class TokenResponse(BaseModel):

@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.domains.auth.schemas import (
+    ForgotPassword,
+    ResetPassword,
     TokenResponse,
     UserLogin,
 )
@@ -120,6 +122,14 @@ REGISTER_ERROR_RESPONSES = {
     409: {
         "model": ErrorResponse,
         "description": "La cédula o el email ya están registrados.",
+    },
+}
+
+RESET_PASSWORD_ERROR_RESPONSES = {
+    **COMMON_ERROR_RESPONSES,
+    400: {
+        "model": ErrorResponse,
+        "description": "El enlace es inválido, ya fue usado, fue reemplazado o expiró.",
     },
 }
 
@@ -306,6 +316,48 @@ async def logout(
 
     _delete_refresh_cookie(response, settings)
     response.headers["Cache-Control"] = "no-store"
+
+
+@router.post(
+    "/forgot-password",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_class=Response,
+    summary="Solicitar recuperación de contraseña",
+    description=(
+        "Recibe la cédula y, si el usuario existe y tiene email registrado, "
+        "envía un enlace de restablecimiento. Siempre responde 202 sin "
+        "cuerpo para no revelar si la cédula existe o tiene email."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+)
+@limiter.limit("3/minute")
+async def forgot_password(
+    request: Request,
+    data: ForgotPassword,
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> None:
+    await AuthService.request_password_reset(db_session, data, settings)
+
+
+@router.post(
+    "/reset-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Restablecer contraseña",
+    description=(
+        "Recibe el token del enlace enviado por correo y la nueva "
+        "contraseña. El token es de un solo uso; al restablecerla se cierran "
+        "todas las sesiones del usuario."
+    ),
+    responses=RESET_PASSWORD_ERROR_RESPONSES,
+)
+@limiter.limit("5/minute")
+async def reset_password(
+    request: Request,
+    data: ResetPassword,
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    await AuthService.reset_password_with_token(db_session, data)
 
 
 

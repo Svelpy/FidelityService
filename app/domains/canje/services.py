@@ -39,9 +39,10 @@ class CanjeService:
     """Ciclo de vida de solicitudes de canje de vales."""
 
     _ROLES_WITH_GLOBAL_VISIBILITY = frozenset(
-        {Role.SUPERADMIN, Role.ADMIN, Role.OWNER, Role.CAJERO}
+        {Role.SUPERADMIN, Role.ADMIN, Role.OWNER}
     )
-    _REDEEMER_ROLES = frozenset({Role.CAJERO, Role.SOCIO})
+    _REDEEMER_ROLES = frozenset({Role.ADMIN, Role.CAJERO, Role.SOCIO})
+    _BUSINESS_SCOPED_ROLES = frozenset({Role.CAJERO, Role.SOCIO})
     _CANCELLER_ROLES = frozenset(
         {Role.SUPERADMIN, Role.OWNER, Role.ADMIN, Role.CAJERO, Role.SOCIO}
     )
@@ -118,8 +119,15 @@ class CanjeService:
             return []
         if actor_role is Role.CLIENTE:
             return [Canje.cliente_id == actor_id]
-        if actor_role in cls._REDEEMER_ROLES:
-            return [Canje.sucursal_id == actor_sucursal_id]
+        if actor_role in cls._BUSINESS_SCOPED_ROLES:
+            # Alias propio: las consultas ya unen la sucursal donde se canjeó.
+            actor_branch = aliased(Sucursal)
+            actor_business_id = (
+                select(actor_branch.negocio_id)
+                .where(actor_branch.id == actor_sucursal_id)
+                .scalar_subquery()
+            )
+            return [Vale.negocio_id == actor_business_id]
         return [Canje.id.is_(None)]
 
     @staticmethod
@@ -634,7 +642,7 @@ class CanjeService:
             redemption_id,
             for_update=True,
         )
-        if actor_role in cls._REDEEMER_ROLES:
+        if actor_role in cls._BUSINESS_SCOPED_ROLES:
             if actor_sucursal_id is None:
                 raise AppException(
                     "No tienes permisos para cancelar este canje.",

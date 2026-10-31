@@ -40,7 +40,8 @@ logger = get_logger(__name__)
 class UserService:
     """Consultas y reglas de negocio del dominio de usuarios."""
 
-    _ROLES_REQUIRING_SUCURSAL = frozenset({Role.CAJERO, Role.SOCIO})
+    _ROLES_REQUIRING_SUCURSAL = frozenset({Role.ADMIN, Role.CAJERO, Role.SOCIO})
+    _ROLES_WITHOUT_SUCURSAL = frozenset({Role.SUPERADMIN, Role.OWNER, Role.CLIENTE})
 
     _ROLE_LEVEL = {
         Role.CLIENTE: 1,
@@ -68,17 +69,41 @@ class UserService:
             )
 
     @staticmethod
-    def _validate_required_sucursal(
+    def _validate_role_sucursal(
         role: Role,
         sucursal_id: UUID | None,
     ) -> None:
         if role in UserService._ROLES_REQUIRING_SUCURSAL and sucursal_id is None:
-            raise AppException(
-                "La sucursal es obligatoria para el rol indicado.",
-                422,
-                ErrorCode.VALIDATION_ERROR,
-                {"sucursal_id": "Este rol requiere una sucursal."},
-            )
+            raise UserService._role_requires_sucursal_exception()
+        if role in UserService._ROLES_WITHOUT_SUCURSAL and sucursal_id is not None:
+            raise UserService._role_without_sucursal_exception()
+
+    @staticmethod
+    def _role_requires_sucursal_exception() -> AppException:
+        return AppException(
+            "La sucursal es obligatoria para el rol indicado.",
+            422,
+            ErrorCode.VALIDATION_ERROR,
+            {"sucursal_id": "Este rol requiere una sucursal."},
+        )
+
+    @staticmethod
+    def _role_without_sucursal_exception() -> AppException:
+        return AppException(
+            "Los usuarios SUPERADMIN, OWNER y CLIENTE no pueden pertenecer a una sucursal.",
+            422,
+            ErrorCode.VALIDATION_ERROR,
+            {"sucursal_id": "Este rol no admite una sucursal."},
+        )
+
+    @staticmethod
+    def _owner_already_exists_exception() -> AppException:
+        return AppException(
+            "Ya existe un usuario OWNER activo.",
+            409,
+            ErrorCode.CONFLICT,
+            {"role": "Solo puede existir un usuario OWNER activo."},
+        )
 
     @staticmethod
     def _integrity_exception(error: IntegrityError) -> AppException:
@@ -118,6 +143,27 @@ class UserService:
                     )
                 },
             )
+
+        if constraint_name == "ck_usuario_main_sucursal_compatible":
+            return AppException(
+                "Un usuario ADMIN o CAJERO solo puede pertenecer a una sucursal del negocio MAIN.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+                {
+                    "sucursal_id": (
+                        "La sucursal debe pertenecer al negocio de tipo MAIN."
+                    )
+                },
+            )
+
+        if constraint_name == "ck_usuario_rol_sin_sucursal":
+            return UserService._role_without_sucursal_exception()
+
+        if constraint_name == "ck_usuario_rol_operativo_con_sucursal":
+            return UserService._role_requires_sucursal_exception()
+
+        if constraint_name == "uq_usuario_owner_activo":
+            return UserService._owner_already_exists_exception()
 
         return AppException(
             "Los datos del usuario entran en conflicto con un registro existente.",
@@ -186,6 +232,22 @@ class UserService:
                 ErrorCode.CONFLICT,
                 {"email": "El email ya está registrado."},
             )
+
+    @staticmethod
+    async def _validate_single_owner(
+        db_session: AsyncSession,
+        exclude_user_id: UUID | None = None,
+    ) -> None:
+        statement = select(User.id).where(
+            User.role == Role.OWNER,
+            User.is_deleted.is_(False),
+        )
+        if exclude_user_id is not None:
+            statement = statement.where(User.id != exclude_user_id)
+
+        result = await db_session.execute(statement.limit(1))
+        if result.scalar_one_or_none() is not None:
+            raise UserService._owner_already_exists_exception()
 
     @staticmethod
     async def _validate_sucursal(
@@ -391,7 +453,9 @@ class UserService:
         actor_role: Role,
     ) -> User:
         cls._validate_can_manage_role(actor_role, data.role)
-        cls._validate_required_sucursal(data.role, data.sucursal_id)
+        cls._validate_role_sucursal(data.role, data.sucursal_id)
+        if data.role is Role.OWNER:
+            await cls._validate_single_owner(db_session)
         await cls._validate_unique_ci(db_session, data.ci)
         await cls._validate_unique_email(
             db_session,
@@ -492,10 +556,15 @@ class UserService:
             resulting_role = changes.get("role", user.role)
             resulting_sucursal_id = changes.get("sucursal_id", user.sucursal_id)
             cls._validate_can_manage_role(actor_role, resulting_role)
-            cls._validate_required_sucursal(
+            cls._validate_role_sucursal(
                 resulting_role,
                 resulting_sucursal_id,
             )
+            if resulting_role is Role.OWNER and user.role is not Role.OWNER:
+                await cls._validate_single_owner(
+                    db_session,
+                    exclude_user_id=user.id,
+                )
 
         if "ci" in changes:
             await cls._validate_unique_ci(

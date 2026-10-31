@@ -143,11 +143,12 @@ def _empty_list_session() -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_list_cajero_ve_todos_los_canjes() -> None:
+@pytest.mark.parametrize("role", [Role.SUPERADMIN, Role.OWNER, Role.ADMIN])
+async def test_list_roles_administrativos_ven_todos_los_canjes(role: Role) -> None:
     actor_branch_id = uuid4()
     session = _empty_list_session()
 
-    await CanjeService.list(session, uuid4(), Role.CAJERO, actor_branch_id)
+    await CanjeService.list(session, uuid4(), role, actor_branch_id)
 
     for call in session.execute.await_args_list:
         parameters = call.args[0].compile().params.values()
@@ -155,15 +156,22 @@ async def test_list_cajero_ve_todos_los_canjes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_socio_queda_limitado_a_su_sucursal() -> None:
+@pytest.mark.parametrize("role", [Role.CAJERO, Role.SOCIO])
+async def test_list_cajero_y_socio_quedan_limitados_al_negocio_de_su_sucursal(
+    role: Role,
+) -> None:
     actor_branch_id = uuid4()
     session = _empty_list_session()
 
-    await CanjeService.list(session, uuid4(), Role.SOCIO, actor_branch_id)
+    await CanjeService.list(session, uuid4(), role, actor_branch_id)
 
     for call in session.execute.await_args_list:
-        parameters = call.args[0].compile().params.values()
-        assert actor_branch_id in parameters
+        statement = call.args[0]
+        compiled = str(statement.compile())
+        assert actor_branch_id in statement.compile().params.values()
+        assert "vale.negocio_id = (SELECT sucursal_1.negocio_id" in compiled
+        assert "FROM public.sucursal AS sucursal_1" in compiled
+        assert "canje.sucursal_id =" not in compiled.split("WHERE", 1)[1]
 
 
 @pytest.mark.asyncio
@@ -532,7 +540,10 @@ async def test_generate_unique_code_conserva_ocho_digitos() -> None:
 
 
 @pytest.mark.asyncio
-async def test_redeem_confirma_sin_modificar_saldo_ni_registrar_movimiento() -> None:
+@pytest.mark.parametrize("role", [Role.CAJERO, Role.ADMIN])
+async def test_redeem_confirma_sin_modificar_saldo_ni_registrar_movimiento(
+    role: Role,
+) -> None:
     session = _session()
     client = _client(points=700)
     branch_id = uuid4()
@@ -569,7 +580,7 @@ async def test_redeem_confirma_sin_modificar_saldo_ni_registrar_movimiento() -> 
             session,
             redemption.id,
             actor_id,
-            Role.CAJERO,
+            role,
             branch_id,
         )
 

@@ -51,20 +51,55 @@ def _session() -> MagicMock:
     return session
 
 
-@pytest.mark.parametrize("role", [Role.CAJERO, Role.SOCIO])
+@pytest.mark.parametrize("role", [Role.ADMIN, Role.CAJERO, Role.SOCIO])
 def test_roles_operativos_requieren_sucursal(role: Role) -> None:
     with pytest.raises(AppException) as error:
-        UserService._validate_required_sucursal(role, None)
+        UserService._validate_role_sucursal(role, None)
 
     assert error.value.status_code == 422
 
 
 @pytest.mark.parametrize(
     "role",
-    [Role.CLIENTE, Role.ADMIN, Role.OWNER, Role.SUPERADMIN],
+    [Role.CLIENTE, Role.OWNER, Role.SUPERADMIN],
 )
-def test_roles_globales_no_requieren_sucursal(role: Role) -> None:
-    UserService._validate_required_sucursal(role, None)
+def test_roles_sin_sucursal_aceptan_sucursal_nula(role: Role) -> None:
+    UserService._validate_role_sucursal(role, None)
+
+
+@pytest.mark.parametrize("role", [Role.SUPERADMIN, Role.OWNER, Role.CLIENTE])
+def test_roles_sin_sucursal_rechazan_sucursal(role: Role) -> None:
+    with pytest.raises(AppException) as error:
+        UserService._validate_role_sucursal(role, uuid4())
+
+    assert error.value.status_code == 422
+    assert error.value.details == {
+        "sucursal_id": "Este rol no admite una sucursal."
+    }
+
+
+@pytest.mark.asyncio
+async def test_validate_single_owner_rechaza_segundo_owner_activo() -> None:
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = uuid4()
+    session = _session()
+    session.execute.return_value = result
+
+    with pytest.raises(AppException) as error:
+        await UserService._validate_single_owner(session)
+
+    assert error.value.status_code == 409
+    assert error.value.code == ErrorCode.CONFLICT
+
+
+@pytest.mark.asyncio
+async def test_validate_single_owner_permite_si_no_hay_owner_activo() -> None:
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session = _session()
+    session.execute.return_value = result
+
+    await UserService._validate_single_owner(session)
 
 
 def test_admin_no_puede_administrar_un_rol_del_mismo_nivel() -> None:
@@ -111,6 +146,95 @@ async def test_commit_traduce_constraint_de_socio_y_revierte_transaccion() -> No
         "sucursal_id": "La sucursal debe pertenecer a un negocio de tipo SOCIO."
     }
     session.rollback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("constraint_name", "status_code"),
+    [
+        ("ck_usuario_rol_sin_sucursal", 422),
+        ("ck_usuario_rol_operativo_con_sucursal", 422),
+        ("ck_usuario_main_sucursal_compatible", 422),
+        ("uq_usuario_owner_activo", 409),
+    ],
+)
+async def test_commit_traduce_constraints_de_roles_globales(
+    constraint_name: str,
+    status_code: int,
+) -> None:
+    original_error = MagicMock()
+    original_error.constraint_name = constraint_name
+    session = _session()
+    session.commit.side_effect = IntegrityError(None, None, original_error)
+
+    with pytest.raises(AppException) as error:
+        await UserService._commit_transaction(session)
+
+    assert error.value.status_code == status_code
+    session.rollback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_owner_valida_que_no_exista_otro_owner() -> None:
+    data = UserCreate(
+        ci="12345678",
+        telefono="71234567",
+        nombre="Ana",
+        genero=Genero.F,
+        role=Role.OWNER,
+        sucursal_id=None,
+    )
+
+    with patch.object(
+        UserService,
+        "_validate_single_owner",
+        new=AsyncMock(side_effect=UserService._owner_already_exists_exception()),
+    ) as validate:
+        with pytest.raises(AppException) as error:
+            await UserService.create(_session(), data, uuid4(), Role.SUPERADMIN)
+
+    assert error.value.status_code == 409
+    validate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_update_a_owner_valida_owner_unico_excluyendo_al_usuario() -> None:
+    user = _user(role=Role.ADMIN)
+    session = _session()
+
+    with (
+        patch.object(UserService, "get", new=AsyncMock(return_value=user)),
+        patch.object(UserService, "_validate_single_owner", new=AsyncMock()) as validate,
+        patch.object(UserService, "_commit", new=AsyncMock()),
+    ):
+        updated = await UserService.update(
+            session,
+            user.id,
+            UserUpdate(role=Role.OWNER),
+            uuid4(),
+            Role.SUPERADMIN,
+        )
+
+    assert updated.role is Role.OWNER
+    validate.assert_awaited_once_with(session, exclude_user_id=user.id)
+
+
+@pytest.mark.asyncio
+async def test_update_rechaza_asignar_sucursal_a_owner() -> None:
+    user = _user(role=Role.OWNER)
+
+    with patch.object(UserService, "get", new=AsyncMock(return_value=user)):
+        with pytest.raises(AppException) as error:
+            await UserService.update(
+                _session(),
+                user.id,
+                UserUpdate(sucursal_id=uuid4()),
+                uuid4(),
+                Role.SUPERADMIN,
+            )
+
+    assert error.value.status_code == 422
+    assert user.sucursal_id is None
 
 
 @pytest.mark.asyncio
@@ -299,16 +423,17 @@ async def test_validaciones_de_unicidad_rechazan_ci_y_email_duplicados() -> None
 
 
 @pytest.mark.asyncio
-async def test_create_admin_sin_sucursal_asigna_hash_y_auditoria() -> None:
+async def test_create_admin_con_sucursal_asigna_hash_y_auditoria() -> None:
     session = _session()
     actor_id = uuid4()
+    sucursal_id = uuid4()
     data = UserCreate(
         ci="12345678",
         telefono="71234567",
         nombre="Ana",
         genero=Genero.F,
         role=Role.ADMIN,
-        sucursal_id=None,
+        sucursal_id=sucursal_id,
     )
 
     with (
@@ -325,7 +450,7 @@ async def test_create_admin_sin_sucursal_asigna_hash_y_auditoria() -> None:
         )
 
     assert user.role is Role.ADMIN
-    assert user.sucursal_id is None
+    assert user.sucursal_id == sucursal_id
     assert user.password_hash == "secure-hash"
     assert user.created_by == actor_id
     assert user.updated_by == actor_id

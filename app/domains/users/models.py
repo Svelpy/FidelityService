@@ -2,7 +2,7 @@ from datetime import date
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Enum as SQLAlchemyEnum
-from sqlalchemy import Index, UniqueConstraint
+from sqlalchemy import Index, UniqueConstraint, text
 from sqlmodel import Field
 
 from app.core.base_model import BaseModel
@@ -15,8 +15,22 @@ class User(BaseModel, table=True):
         UniqueConstraint("ci", name="uq_usuario_ci"),
         UniqueConstraint("email", name="uq_usuario_email"),
         CheckConstraint("puntos >= 0", name="ck_usuario_puntos_no_negativos"),
+        CheckConstraint(
+            "role NOT IN ('SUPERADMIN', 'OWNER', 'CLIENTE') OR sucursal_id IS NULL",
+            name="ck_usuario_rol_sin_sucursal",
+        ),
+        CheckConstraint(
+            "role NOT IN ('ADMIN', 'CAJERO', 'SOCIO') OR sucursal_id IS NOT NULL",
+            name="ck_usuario_rol_operativo_con_sucursal",
+        ),
         Index("ix_usuario_sucursal_id", "sucursal_id"),
         Index("ix_usuario_role", "role"),
+        Index(
+            "uq_usuario_owner_activo",
+            "role",
+            unique=True,
+            postgresql_where=text("role = 'OWNER' AND is_deleted = false"),
+        ),
         {"schema": "public"},
     )
 

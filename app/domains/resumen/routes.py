@@ -60,11 +60,14 @@ async def get_resumen_admin(
 @router.get(
     "/cajero",
     response_model=ResumenCajeroResponse,
-    summary="Resumen de inicio del cajero en sesión",
+    summary="Resumen de inicio del cajero o admin en sesión",
     responses=_error_responses(401, 403, 500),
 )
 async def get_resumen_cajero(
-    current_user: Annotated[CurrentUser, Depends(require_role(Role.CAJERO))],
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_role(Role.CAJERO, Role.ADMIN)),
+    ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ResumenCajeroResponse:

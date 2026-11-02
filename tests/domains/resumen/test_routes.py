@@ -131,7 +131,7 @@ def test_resumen_admin_rechaza_otros_roles(
     service.assert_not_awaited()
 
 
-@pytest.mark.parametrize("role", [Role.CAJERO, Role.ADMIN])
+@pytest.mark.parametrize("role", [Role.CAJERO])
 def test_resumen_cajero_usa_usuario_en_sesion(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
     role: Role,
@@ -152,7 +152,7 @@ def test_resumen_cajero_usa_usuario_en_sesion(
     assert service.await_args.args[:2] == (session, principal.id)
 
 
-@pytest.mark.parametrize("role", [Role.OWNER, Role.CLIENTE, Role.SOCIO])
+@pytest.mark.parametrize("role", [Role.OWNER, Role.ADMIN, Role.CLIENTE, Role.SOCIO])
 def test_resumen_cajero_rechaza_otros_roles(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
     role: Role,

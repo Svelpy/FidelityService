@@ -36,7 +36,7 @@ def _error_responses(*status_codes: int) -> dict[int, dict[str, object]]:
 
 @router.get(
     "/active",
-    response_model=ConfigPuntosResponseAudit,
+    response_model=ConfigPuntosResponse,
     summary="Consultar configuración de puntos activa",
     responses=_error_responses(401, 403, 404, 500),
 )
@@ -46,7 +46,7 @@ async def get_active_config_puntos(
         Depends(require_permission(Module.CONFIG_PUNTOS, Action.READ)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> ConfigPuntosResponseAudit:
+) -> ConfigPuntosResponse:
     config = await ConfigPuntosService.get_active(db_session)
     assert config is not None
     return config
@@ -98,7 +98,7 @@ async def replace_config_puntos(
 
 @router.get(
     "/{config_puntos_id}",
-    response_model=ConfigPuntosResponseAudit,
+    response_model=ConfigPuntosResponse,
     summary="Consultar configuración de puntos",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -109,5 +109,26 @@ async def get_config_puntos(
         Depends(require_permission(Module.CONFIG_PUNTOS, Action.READ)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> ConfigPuntosResponseAudit:
+) -> ConfigPuntosResponse:
     return await ConfigPuntosService.get(db_session, config_puntos_id)
+
+
+@router.get(
+    "/{config_puntos_id}/audit",
+    response_model=ConfigPuntosResponseAudit,
+    summary="Consultar configuración de puntos con auditoría",
+    responses=_error_responses(401, 403, 404, 422, 500),
+)
+async def get_config_puntos_audit(
+    config_puntos_id: UUID,
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_permission(Module.CONFIG_PUNTOS, Action.AUDIT)),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> ConfigPuntosResponseAudit:
+    return await ConfigPuntosService.get(
+        db_session,
+        config_puntos_id,
+        include_deleted=True,
+    )

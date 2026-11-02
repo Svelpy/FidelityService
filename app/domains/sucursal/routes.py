@@ -83,7 +83,7 @@ async def create_sucursal(
 
 @router.get(
     "/{sucursal_id}",
-    response_model=SucursalResponseAudit,
+    response_model=SucursalResponse,
     summary="Consultar sucursal",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -94,8 +94,25 @@ async def get_sucursal(
         Depends(require_permission(Module.SUCURSAL, Action.READ)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> SucursalResponseAudit:
+) -> SucursalResponse:
     return await SucursalService.get(db_session, sucursal_id)
+
+
+@router.get(
+    "/{sucursal_id}/audit",
+    response_model=SucursalResponseAudit,
+    summary="Consultar sucursal con auditoría",
+    responses=_error_responses(401, 403, 404, 422, 500),
+)
+async def get_sucursal_audit(
+    sucursal_id: UUID,
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_permission(Module.SUCURSAL, Action.AUDIT)),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> SucursalResponseAudit:
+    return await SucursalService.get(db_session, sucursal_id, include_deleted=True)
 
 
 @router.patch(

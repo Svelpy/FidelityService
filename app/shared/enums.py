@@ -24,6 +24,7 @@ class Module(str, Enum):
 class Action(str, Enum):
     CREATE = "CREATE"
     READ = "READ"
+    AUDIT = "AUDIT"
     UPDATE = "UPDATE"
     DELETE = "DELETE"
 

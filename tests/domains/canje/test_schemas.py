@@ -7,9 +7,7 @@ from app.domains.canje.schemas import (
     CanjeByCodigoResponse,
     CanjeCreate,
     CanjeDetailResponse,
-    CanjeDetailResponseAudit,
     CanjeListResponse,
-    CanjeListResponseAudit,
     CanjeResponse,
     CanjeResponseAudit,
 )
@@ -62,7 +60,7 @@ def test_by_codigo_response_reutiliza_examples_hijos() -> None:
 
 @pytest.mark.parametrize(
     "schema",
-    [CanjeDetailResponse, CanjeDetailResponseAudit],
+    [CanjeDetailResponse],
 )
 def test_canje_detail_responses_reutilizan_examples_hijos(
     schema: type[CanjeDetailResponse],
@@ -84,7 +82,7 @@ def test_canje_detail_responses_reutilizan_examples_hijos(
 
 @pytest.mark.parametrize(
     "schema",
-    [CanjeListResponse, CanjeListResponseAudit],
+    [CanjeListResponse],
 )
 def test_canje_list_responses_reutilizan_examples_hijos(
     schema: type[CanjeListResponse],

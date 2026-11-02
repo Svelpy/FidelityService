@@ -15,7 +15,6 @@ from app.domains.operacion.models import Operacion
 from app.domains.operacion.schemas import (
     OperacionCreate,
     OperacionDetailResponse,
-    OperacionDetailResponseAudit,
     OperacionListResponse,
 )
 from app.domains.sucursal.models import Sucursal
@@ -145,22 +144,15 @@ class OperacionService:
         operation_id: UUID,
         actor_id: UUID,
         actor_role: Role,
-    ) -> OperacionDetailResponseAudit:
-        operation, recipient, issuer, branch, business = (
-            await cls._get_detail_records(
-                db_session,
-                operation_id,
-                actor_id,
-                actor_role,
-            )
+    ) -> Operacion:
+        operation, *_ = await cls._get_detail_records(
+            db_session,
+            operation_id,
+            actor_id,
+            actor_role,
+            include_deleted=True,
         )
-        return OperacionDetailResponseAudit(
-            operacion=operation,
-            receptor=recipient,
-            emisor=issuer,
-            sucursal=branch,
-            negocio=business,
-        )
+        return operation
 
     @classmethod
     async def _get_detail_records(
@@ -169,12 +161,15 @@ class OperacionService:
         operation_id: UUID,
         actor_id: UUID,
         actor_role: Role,
+        *,
+        include_deleted: bool = False,
     ) -> tuple[Operacion, User, User, Sucursal, Negocio]:
         filters = [
             Operacion.id == operation_id,
-            Operacion.is_deleted.is_(False),
             *cls._visibility_filters(actor_id, actor_role),
         ]
+        if not include_deleted:
+            filters.append(Operacion.is_deleted.is_(False))
         receptor = aliased(User)
         emisor = aliased(User)
         result = await db_session.execute(

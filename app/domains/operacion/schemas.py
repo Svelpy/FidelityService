@@ -5,12 +5,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domains.negocio.schemas import NegocioResponse, NegocioResponseAudit
-from app.domains.sucursal.schemas import SucursalResponse, SucursalResponseAudit
+from app.domains.negocio.schemas import NegocioResponse
+from app.domains.sucursal.schemas import SucursalResponse
 from app.domains.users.schemas import (
     UserRegistrationData,
     UserResponse,
-    UserResponseAudit,
 )
 from app.shared.services.validators import (
     validator_non_empty_text,
@@ -146,33 +145,6 @@ class OperacionListResponse(BaseModel):
     )
 
 
-class OperacionListResponseAudit(OperacionListResponse):
-    operacion: OperacionResponseAudit
-    receptor: UserResponseAudit
-    emisor: UserResponseAudit
-    sucursal: SucursalResponseAudit
-
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_schema_extra={
-            "example": {
-                "operacion": OperacionResponseAudit.model_json_schema()["example"],
-                "receptor": UserResponseAudit.model_json_schema()["example"],
-                "emisor": {
-                    **UserResponseAudit.model_json_schema()["example"],
-                    "id": "33333333-3333-4333-8333-333333333333",
-                    "role": "CAJERO",
-                    "sucursal_id": "55555555-5555-4555-8555-555555555555",
-                },
-                "sucursal": {
-                    **SucursalResponseAudit.model_json_schema()["example"],
-                    "id": "55555555-5555-4555-8555-555555555555",
-                },
-            }
-        },
-    )
-
-
 class OperacionDetailResponse(OperacionListResponse):
     negocio: NegocioResponse
 
@@ -182,20 +154,6 @@ class OperacionDetailResponse(OperacionListResponse):
             "example": {
                 **OperacionListResponse.model_json_schema()["example"],
                 "negocio": NegocioResponse.model_json_schema()["example"],
-            }
-        },
-    )
-
-
-class OperacionDetailResponseAudit(OperacionListResponseAudit):
-    negocio: NegocioResponseAudit
-
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_schema_extra={
-            "example": {
-                **OperacionListResponseAudit.model_json_schema()["example"],
-                "negocio": NegocioResponseAudit.model_json_schema()["example"],
             }
         },
     )

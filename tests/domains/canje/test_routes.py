@@ -18,7 +18,6 @@ from app.domains.canje.routes import router
 from app.domains.canje.schemas import (
     CanjeByCodigoResponse,
     CanjeDetailResponse,
-    CanjeDetailResponseAudit,
     CanjeExpireResponse,
     CanjeListResponse,
 )
@@ -133,6 +132,7 @@ def test_list_delega_todos_los_filtros(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
     client, principal, session = route_context
+    principal.role = Role.ADMIN
     redemption = _redemption()
     voucher = _voucher(redemption)
     business = _business(voucher)
@@ -197,7 +197,8 @@ def test_list_rechaza_ids_de_filtro_invalidos(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
     filter_name: str,
 ) -> None:
-    client, _, _ = route_context
+    client, principal, _ = route_context
+    principal.role = Role.ADMIN
 
     assert client.get("/canjes/", params={filter_name: "invalido"}).status_code == 422
 
@@ -275,6 +276,7 @@ def test_get_by_id_devuelve_200_con_vale_eliminado(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
     client, principal, session = route_context
+    principal.role = Role.ADMIN
     redemption = _redemption()
     voucher = _voucher(redemption)
     business = _business(voucher)
@@ -316,6 +318,8 @@ def test_get_by_codigo_delega_contexto_del_principal(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
     client, principal, session = route_context
+    principal.role = Role.CAJERO
+    principal.sucursal_id = uuid4()
     redemption = _redemption()
     redemption.status = EstadoCanje.CANCELADO
     voucher = _voucher(redemption)
@@ -353,7 +357,8 @@ def test_get_by_codigo_rechaza_formato_invalido(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
     codigo: str,
 ) -> None:
-    client, _, _ = route_context
+    client, principal, _ = route_context
+    principal.role = Role.CAJERO
 
     with patch.object(CanjeService, "get_by_codigo", new=AsyncMock()) as service:
         response = client.get(f"/canjes/codigo/{codigo}")
@@ -362,34 +367,29 @@ def test_get_by_codigo_rechaza_formato_invalido(
     service.assert_not_awaited()
 
 
-@pytest.mark.parametrize("role", [Role.SUPERADMIN, Role.OWNER, Role.ADMIN])
-def test_get_by_id_audit_permite_roles_administrativos(
+def test_get_by_id_audit_devuelve_canje_plano_con_auditoria(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
-    role: Role,
 ) -> None:
     client, principal, session = route_context
-    principal.role = role
+    principal.role = Role.SUPERADMIN
     redemption = _redemption()
-    voucher = _voucher(redemption)
-    business = _business(voucher)
-    detail = CanjeDetailResponseAudit(
-        canje=redemption,
-        usuario_cliente=_user(redemption.cliente_id),
-        usuario_cajero_socio=None,
-        vale=voucher,
-        sucursal=None,
-        negocio=business,
-    )
+    redemption.is_deleted = True
+    redemption.deleted_at = datetime.now(timezone.utc)
+    redemption.deleted_by = uuid4()
 
     with patch.object(
         CanjeService,
         "get_audit",
-        new=AsyncMock(return_value=detail),
+        new=AsyncMock(return_value=redemption),
     ) as service:
         response = client.get(f"/canjes/{redemption.id}/audit")
 
     assert response.status_code == 200
-    assert response.json()["canje"]["id"] == str(redemption.id)
+    body = response.json()
+    assert body["id"] == str(redemption.id)
+    assert body["is_deleted"] is True
+    assert body["deleted_by"] == str(redemption.deleted_by)
+    assert "vale" not in body
     service.assert_awaited_once_with(
         session,
         redemption.id,
@@ -399,8 +399,11 @@ def test_get_by_id_audit_permite_roles_administrativos(
     )
 
 
-@pytest.mark.parametrize("role", [Role.CAJERO, Role.SOCIO, Role.CLIENTE])
-def test_get_by_id_audit_rechaza_roles_no_administrativos(
+@pytest.mark.parametrize(
+    "role",
+    [Role.OWNER, Role.ADMIN, Role.CAJERO, Role.SOCIO, Role.CLIENTE],
+)
+def test_get_by_id_audit_rechaza_roles_sin_permiso_audit(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
     role: Role,
 ) -> None:
@@ -510,3 +513,27 @@ def test_cancel_delega_identidad_del_cajero(
         principal.role,
         principal.sucursal_id,
     )
+
+
+@pytest.mark.parametrize(
+    ("method_name", "path"),
+    [
+        ("list", "/canjes/"),
+        ("get", "/canjes/00000000-0000-4000-8000-000000000000"),
+        ("get_by_codigo", "/canjes/codigo/00123456"),
+    ],
+)
+def test_cliente_no_accede_a_consultas_generales_de_canjes(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+    method_name: str,
+    path: str,
+) -> None:
+    """El cliente consulta sus canjes únicamente mediante GET /canjes/me."""
+    client, principal, _ = route_context
+    principal.role = Role.CLIENTE
+
+    with patch.object(CanjeService, method_name, new=AsyncMock()) as service:
+        response = client.get(path)
+
+    assert response.status_code == 403
+    service.assert_not_awaited()

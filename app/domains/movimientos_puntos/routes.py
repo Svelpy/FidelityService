@@ -11,6 +11,7 @@ from app.domains.movimientos_puntos.schemas import (
     MovimientoPuntosDetailResponse,
     MovimientoPuntosListMeResponse,
     MovimientoPuntosListResponse,
+    MovimientoPuntosResponseAudit,
 )
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.shared.enums import Action, Module, TipoMovimiento
@@ -104,4 +105,25 @@ async def get_movimiento_puntos(
         movimiento_id,
         current_user.id,
         current_user.role,
+    )
+
+
+@router.get(
+    "/{movimiento_id}/audit",
+    response_model=MovimientoPuntosResponseAudit,
+    summary="Consultar movimiento de puntos con auditoría",
+    responses=_error_responses(401, 403, 404, 422, 500),
+)
+async def get_movimiento_puntos_audit(
+    movimiento_id: UUID,
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_permission(Module.MOVIMIENTOS_PUNTOS, Action.AUDIT)),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> MovimientoPuntosResponseAudit:
+    return await MovimientoPuntosService.get(
+        db_session,
+        movimiento_id,
+        include_deleted=True,
     )

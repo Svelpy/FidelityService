@@ -15,6 +15,7 @@ from app.domains.movimientos_puntos.routes import router
 from app.domains.movimientos_puntos.schemas import MovimientoPuntosDetailResponse
 from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.shared.enums import Role, TipoMovimiento
+from app.shared.errors.exceptions import AppException
 from app.shared.schemas.pagination import PaginatedResponse
 
 
@@ -106,6 +107,7 @@ def test_get_by_id_delega_identidad_del_actor(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
     client, principal, session = route_context
+    principal.role = Role.ADMIN
     movement = MovimientoPuntos(
         usuario_id=principal.id,
         tipo_movimiento=TipoMovimiento.ACUMULA,
@@ -135,3 +137,29 @@ def test_get_by_id_delega_identidad_del_actor(
         principal.id,
         principal.role,
     )
+
+
+@pytest.mark.parametrize(
+    ("method_name", "path"),
+    [
+        ("list", "/movimientos-puntos/"),
+        ("get_detail", "/movimientos-puntos/00000000-0000-4000-8000-000000000000"),
+    ],
+)
+def test_cliente_no_accede_a_consultas_generales_de_movimientos(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+    method_name: str,
+    path: str,
+) -> None:
+    """El cliente consulta sus movimientos únicamente mediante GET /movimientos-puntos/me."""
+    client, principal, _ = route_context
+    principal.role = Role.CLIENTE
+
+    with (
+        patch.object(MovimientoPuntosService, method_name, new=AsyncMock()) as service,
+        pytest.raises(AppException) as error,
+    ):
+        client.get(path)
+
+    assert error.value.status_code == 403
+    service.assert_not_awaited()

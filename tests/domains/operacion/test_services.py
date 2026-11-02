@@ -396,3 +396,30 @@ async def test_list_devuelve_operaciones_visibles_paginadas() -> None:
         assert operation.emisor_id in parameters
         assert operation.receptor_id in parameters
         assert operation.sucursal_id in parameters
+
+
+@pytest.mark.asyncio
+async def test_get_audit_incluye_operaciones_eliminadas() -> None:
+    operation = Operacion(
+        receptor_id=uuid4(),
+        emisor_id=uuid4(),
+        total_compra=Decimal("100.00"),
+        total_puntos=10,
+        config_punto_id=uuid4(),
+        sucursal_id=uuid4(),
+    )
+    result = MagicMock()
+    result.one_or_none.return_value = (operation, None, None, None, None)
+    session = _session()
+    session.execute.return_value = result
+
+    audit = await OperacionService.get_audit(
+        session,
+        operation.id,
+        uuid4(),
+        Role.SUPERADMIN,
+    )
+
+    assert audit is operation
+    statement = session.execute.await_args.args[0]
+    assert "operacion.is_deleted" not in str(statement.whereclause)

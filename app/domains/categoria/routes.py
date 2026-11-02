@@ -59,7 +59,7 @@ async def list_categorias(
 
 @router.get(
     "/{categoria_id}",
-    response_model=CategoriaResponseAudit,
+    response_model=CategoriaResponse,
     summary="Consultar categoría",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -70,8 +70,25 @@ async def get_categoria(
         Depends(require_permission(Module.CATEGORIA, Action.READ)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> CategoriaResponseAudit:
+) -> CategoriaResponse:
     return await CategoriaService.get(db_session, categoria_id)
+
+
+@router.get(
+    "/{categoria_id}/audit",
+    response_model=CategoriaResponseAudit,
+    summary="Consultar categoría con auditoría",
+    responses=_error_responses(401, 403, 404, 422, 500),
+)
+async def get_categoria_audit(
+    categoria_id: UUID,
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_permission(Module.CATEGORIA, Action.AUDIT)),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> CategoriaResponseAudit:
+    return await CategoriaService.get(db_session, categoria_id, include_deleted=True)
 
 
 @router.post(

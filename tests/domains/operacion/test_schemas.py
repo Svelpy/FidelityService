@@ -7,9 +7,7 @@ from pydantic import ValidationError
 from app.domains.operacion.schemas import (
     OperacionCreate,
     OperacionDetailResponse,
-    OperacionDetailResponseAudit,
     OperacionListResponse,
-    OperacionListResponseAudit,
     OperacionResponse,
     OperacionResponseAudit,
 )
@@ -115,15 +113,7 @@ def test_response_examples_contienen_todos_los_campos() -> None:
             {"operacion", "receptor", "emisor", "sucursal"},
         ),
         (
-            OperacionListResponseAudit,
-            {"operacion", "receptor", "emisor", "sucursal"},
-        ),
-        (
             OperacionDetailResponse,
-            {"operacion", "receptor", "emisor", "sucursal", "negocio"},
-        ),
-        (
-            OperacionDetailResponseAudit,
             {"operacion", "receptor", "emisor", "sucursal", "negocio"},
         ),
     ],

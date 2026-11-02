@@ -327,10 +327,13 @@ def test_get_update_delete_usuario_delegan_servicio(
         )
 
 
+@pytest.mark.parametrize("actor_role", [Role.ADMIN, Role.CAJERO, Role.SOCIO])
 def test_get_user_by_ci_delega_consulta_administrativa(
     route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
 ) -> None:
-    client, _, db_session, _ = route_context
+    client, current_user, db_session, _ = route_context
+    current_user.role = actor_role
     user = _user()
 
     with patch.object(
@@ -348,10 +351,47 @@ def test_get_user_by_ci_delega_consulta_administrativa(
     service.assert_awaited_once_with(db_session, user.ci)
 
 
+@pytest.mark.parametrize("actor_role", [Role.SUPERADMIN, Role.OWNER, Role.CLIENTE])
+def test_get_user_by_ci_rechaza_roles_no_autorizados(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
+) -> None:
+    client, current_user, _, _ = route_context
+    current_user.role = actor_role
+
+    with patch.object(UserService, "get_by_ci", new=AsyncMock()) as service:
+        response = client.get("/users/ci/12345678")
+
+    assert response.status_code == 403
+    service.assert_not_awaited()
+
+
+@pytest.mark.parametrize("actor_role", [Role.CAJERO])
+def test_cajero_solo_consulta_usuarios_por_ci(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
+) -> None:
+    client, current_user, _, _ = route_context
+    current_user.role = actor_role
+
+    with (
+        patch.object(UserService, "list", new=AsyncMock()) as list_service,
+        patch.object(UserService, "get_detail", new=AsyncMock()) as detail_service,
+    ):
+        list_response = client.get("/users/")
+        detail_response = client.get(f"/users/{uuid4()}")
+
+    assert list_response.status_code == 403
+    assert detail_response.status_code == 403
+    list_service.assert_not_awaited()
+    detail_service.assert_not_awaited()
+
+
 def test_get_user_by_ci_valida_formato(
     route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
 ) -> None:
-    client, _, _, _ = route_context
+    client, current_user, _, _ = route_context
+    current_user.role = Role.CAJERO
 
     assert client.get("/users/ci/ABC").status_code == 422
 

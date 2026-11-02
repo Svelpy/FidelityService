@@ -36,6 +36,26 @@ class MovimientoPuntosService:
     )
 
     @staticmethod
+    async def get(
+        db_session: AsyncSession,
+        movement_id: UUID,
+        *,
+        include_deleted: bool = False,
+    ) -> MovimientoPuntos:
+        statement = select(MovimientoPuntos).where(MovimientoPuntos.id == movement_id)
+        if not include_deleted:
+            statement = statement.where(MovimientoPuntos.is_deleted.is_(False))
+        result = await db_session.execute(statement)
+        movement = result.scalar_one_or_none()
+        if movement is None:
+            raise AppException(
+                "Movimiento de puntos no encontrado.",
+                404,
+                ErrorCode.RESOURCE_NOT_FOUND,
+            )
+        return movement
+
+    @staticmethod
     async def get_by_redemption_id(
         db_session: AsyncSession,
         redemption_id: UUID,

@@ -57,13 +57,13 @@ class ConfigPuntosService:
     async def get(
         db_session: AsyncSession,
         config_puntos_id: UUID,
+        *,
+        include_deleted: bool = False,
     ) -> ConfigPuntos:
-        result = await db_session.execute(
-            select(ConfigPuntos).where(
-                ConfigPuntos.id == config_puntos_id,
-                ConfigPuntos.is_deleted.is_(False),
-            )
-        )
+        statement = select(ConfigPuntos).where(ConfigPuntos.id == config_puntos_id)
+        if not include_deleted:
+            statement = statement.where(ConfigPuntos.is_deleted.is_(False))
+        result = await db_session.execute(statement)
         config = result.scalar_one_or_none()
         if config is None:
             raise AppException(

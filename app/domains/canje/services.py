@@ -13,7 +13,6 @@ from app.domains.canje.schemas import (
     CanjeByCodigoResponse,
     CanjeCreate,
     CanjeDetailResponse,
-    CanjeDetailResponseAudit,
     CanjeExpireResponse,
     CanjeListResponse,
 )
@@ -161,16 +160,19 @@ class CanjeService:
         actor_id: UUID,
         actor_role: Role,
         actor_sucursal_id: UUID | None,
+        *,
+        include_deleted: bool = False,
     ) -> tuple[Canje, User, User | None, Vale, Sucursal | None, Negocio]:
         filters = [
             Canje.id == redemption_id,
-            Canje.is_deleted.is_(False),
             *cls._visibility_filters(
                 actor_id,
                 actor_role,
                 actor_sucursal_id,
             ),
         ]
+        if not include_deleted:
+            filters.append(Canje.is_deleted.is_(False))
         cliente = aliased(User)
         cajero_socio = aliased(User)
         result = await db_session.execute(
@@ -226,24 +228,16 @@ class CanjeService:
         actor_id: UUID,
         actor_role: Role,
         actor_sucursal_id: UUID | None,
-    ) -> CanjeDetailResponseAudit:
-        redemption, client, redeemer, voucher, branch, business = (
-            await cls._get_detail_records(
-                db_session,
-                redemption_id,
-                actor_id,
-                actor_role,
-                actor_sucursal_id,
-            )
+    ) -> Canje:
+        redemption, *_ = await cls._get_detail_records(
+            db_session,
+            redemption_id,
+            actor_id,
+            actor_role,
+            actor_sucursal_id,
+            include_deleted=True,
         )
-        return CanjeDetailResponseAudit(
-            canje=redemption,
-            usuario_cliente=client,
-            usuario_cajero_socio=redeemer,
-            vale=voucher,
-            sucursal=branch,
-            negocio=business,
-        )
+        return redemption
 
     @classmethod
     async def get_by_codigo(

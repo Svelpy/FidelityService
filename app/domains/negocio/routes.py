@@ -12,7 +12,6 @@ from app.domains.negocio.schemas import (
     NegocioCreate,
     NegocioResponseAudit,
     NegocioSucursalesResponse,
-    NegocioSucursalesResponseAudit,
     NegocioUpdate,
 )
 from app.domains.negocio.services import NegocioService
@@ -132,7 +131,7 @@ async def delete_negocio_image(
 
 @router.get(
     "/{negocio_id}",
-    response_model=NegocioSucursalesResponseAudit,
+    response_model=NegocioSucursalesResponse,
     summary="Consultar negocio",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -143,8 +142,25 @@ async def get_negocio(
         Depends(require_permission(Module.NEGOCIO, Action.READ)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> NegocioSucursalesResponseAudit:
+) -> NegocioSucursalesResponse:
     return await NegocioService.get_with_sucursales(db_session, negocio_id)
+
+
+@router.get(
+    "/{negocio_id}/audit",
+    response_model=NegocioResponseAudit,
+    summary="Consultar negocio con auditoría",
+    responses=_error_responses(401, 403, 404, 422, 500),
+)
+async def get_negocio_audit(
+    negocio_id: UUID,
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_permission(Module.NEGOCIO, Action.AUDIT)),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> NegocioResponseAudit:
+    return await NegocioService.get(db_session, negocio_id, include_deleted=True)
 
 
 @router.patch(

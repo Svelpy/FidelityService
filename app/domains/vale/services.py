@@ -20,7 +20,6 @@ from app.domains.vale.models import Vale
 from app.domains.vale.schemas import (
     ValeCreate,
     ValeDetailResponse,
-    ValeDetailResponseAudit,
     ValeListResponse,
     ValePuntosSuggestionResponse,
     ValeUpdate,
@@ -150,22 +149,6 @@ class ValeService:
             vale_id,
         )
         return ValeDetailResponse(
-            vale=vale,
-            categoria=categoria,
-            negocio=negocio_detail.negocio,
-            sucursales=negocio_detail.sucursales,
-        )
-
-    @staticmethod
-    async def get_detail_audit(
-        db_session: AsyncSession,
-        vale_id: UUID,
-    ) -> ValeDetailResponseAudit:
-        vale, categoria, negocio_detail = await ValeService._get_detail_data(
-            db_session,
-            vale_id,
-        )
-        return ValeDetailResponseAudit(
             vale=vale,
             categoria=categoria,
             negocio=negocio_detail.negocio,

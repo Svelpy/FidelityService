@@ -5,13 +5,12 @@ from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.domains.auth.dependencies import require_permission, require_role, get_current_principal
+from app.domains.auth.dependencies import require_permission, get_current_principal, require_role
 from app.domains.auth.schemas import CurrentUser
 from app.domains.canje.schemas import (
     CanjeByCodigoResponse,
     CanjeCreate,
     CanjeDetailResponse,
-    CanjeDetailResponseAudit,
     CanjeExpireResponse,
     CanjeListResponse,
     CanjeResponseAudit,
@@ -228,7 +227,7 @@ async def get_canje(
 
 @router.get(
     "/{canje_id}/audit",
-    response_model=CanjeDetailResponseAudit,
+    response_model=CanjeResponseAudit,
     summary="Consultar canje con auditoría",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -236,10 +235,10 @@ async def get_canje_audit(
     canje_id: UUID,
     current_user: Annotated[
         CurrentUser,
-        Depends(require_role(Role.SUPERADMIN, Role.OWNER, Role.ADMIN)),
+        Depends(require_permission(Module.CANJE, Action.AUDIT)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> CanjeDetailResponseAudit:
+) -> CanjeResponseAudit:
     return await CanjeService.get_audit(
         db_session,
         canje_id,

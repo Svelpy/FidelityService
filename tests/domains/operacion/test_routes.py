@@ -15,8 +15,8 @@ from app.domains.operacion.models import Operacion
 from app.domains.operacion.routes import router
 from app.domains.operacion.schemas import (
     OperacionDetailResponse,
-    OperacionDetailResponseAudit,
     OperacionListResponse,
+    OperacionResponseAudit,
 )
 from app.domains.operacion.services import OperacionService
 from app.shared.enums import Role
@@ -115,22 +115,25 @@ def test_get_audit_delega_alcance_del_principal(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
 ) -> None:
     client, principal, session = route_context
-    principal.role = Role.ADMIN
-    detail = OperacionDetailResponseAudit.model_validate(
-        OperacionDetailResponseAudit.model_json_schema()["example"]
+    principal.role = Role.SUPERADMIN
+    operation = OperacionResponseAudit.model_validate(
+        OperacionResponseAudit.model_json_schema()["example"]
     )
     with patch.object(
         OperacionService,
         "get_audit",
-        new=AsyncMock(return_value=detail),
+        new=AsyncMock(return_value=operation),
     ) as service:
-        response = client.get(f"/operaciones/{detail.operacion.id}/audit")
+        response = client.get(f"/operaciones/{operation.id}/audit")
 
     assert response.status_code == 200
-    assert response.json()["operacion"]["deleted_at"] is not None
+    body = response.json()
+    assert body["id"] == str(operation.id)
+    assert body["deleted_at"] is not None
+    assert "receptor" not in body
     service.assert_awaited_once_with(
         session,
-        detail.operacion.id,
+        operation.id,
         principal.id,
         principal.role,
     )

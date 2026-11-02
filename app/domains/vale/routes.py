@@ -9,12 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
-from app.domains.auth.dependencies import require_permission, require_role
+from app.domains.auth.dependencies import require_permission
 from app.domains.auth.schemas import CurrentUser
 from app.domains.vale.schemas import (
     ValeCreate,
     ValeDetailResponse,
-    ValeDetailResponseAudit,
     ValeListResponse,
     ValePuntosSuggestionRequest,
     ValePuntosSuggestionResponse,
@@ -22,7 +21,7 @@ from app.domains.vale.schemas import (
     ValeUpdate,
 )
 from app.domains.vale.services import ValeService
-from app.shared.enums import Action, Module, Role
+from app.shared.enums import Action, Module
 from app.shared.schemas.errors import ErrorResponse
 from app.shared.schemas.pagination import PaginatedResponse
 
@@ -182,7 +181,7 @@ async def get_vale(
 
 @router.get(
     "/{vale_id}/audit",
-    response_model=ValeDetailResponseAudit,
+    response_model=ValeResponseAudit,
     summary="Consultar vale con auditoría",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -190,11 +189,11 @@ async def get_vale_audit(
     vale_id: UUID,
     current_user: Annotated[
         CurrentUser,
-        Depends(require_role(Role.SUPERADMIN, Role.OWNER, Role.ADMIN)),
+        Depends(require_permission(Module.VALE, Action.AUDIT)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> ValeDetailResponseAudit:
-    return await ValeService.get_detail_audit(db_session, vale_id)
+) -> ValeResponseAudit:
+    return await ValeService.get(db_session, vale_id, include_deleted=True)
 
 
 @router.patch(

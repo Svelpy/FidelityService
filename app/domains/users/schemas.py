@@ -347,7 +347,26 @@ class UserResponseAudit(UserResponse):
     )
 
 
-class UserDetailResponseAudit(BaseModel):
+class UserDetailResponse(BaseModel):
+    """Respuesta del usuario y sus relaciones, sin auditoria."""
+
+    user: UserResponse
+    sucursal: SucursalResponse | None
+    negocio: NegocioResponse | None
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "user": UserResponse.model_json_schema()["example"],
+                "sucursal": SucursalResponse.model_json_schema()["example"],
+                "negocio": NegocioResponse.model_json_schema()["example"],
+            }
+        },
+    )
+
+
+class UserDetailResponseAudit(UserDetailResponse):
     """Respuesta administrativa con auditoria del usuario y sus relaciones."""
 
     user: UserResponseAudit

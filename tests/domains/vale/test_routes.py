@@ -19,7 +19,6 @@ from app.domains.vale.models import Vale
 from app.domains.vale.routes import router
 from app.domains.vale.schemas import (
     ValeDetailResponse,
-    ValeDetailResponseAudit,
     ValeListResponse,
     ValePuntosSuggestionResponse,
 )
@@ -299,43 +298,41 @@ def test_get_delega_al_servicio(
     service.assert_awaited_once_with(db_session, vale.id)
 
 
-@pytest.mark.parametrize("role", [Role.SUPERADMIN, Role.OWNER, Role.ADMIN])
-def test_get_audit_permite_roles_administrativos(
+def test_get_audit_devuelve_vale_plano_incluyendo_eliminados(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
-    role: Role,
 ) -> None:
     client, current_user, db_session = route_context
-    current_user.role = role
+    current_user.role = Role.SUPERADMIN
     vale = _vale()
-    negocio = _negocio(vale)
-    detail = ValeDetailResponseAudit(
-        vale=vale,
-        categoria=_categoria(vale),
-        negocio=negocio,
-        sucursales=[Sucursal(nombre="Sucursal Centro", negocio_id=negocio.id)],
-    )
+    vale.is_deleted = True
 
     with patch.object(
         ValeService,
-        "get_detail_audit",
-        new=AsyncMock(return_value=detail),
+        "get",
+        new=AsyncMock(return_value=vale),
     ) as service:
         response = client.get(f"/vales/{vale.id}/audit")
 
     assert response.status_code == 200
-    assert response.json()["vale"]["id"] == str(vale.id)
-    service.assert_awaited_once_with(db_session, vale.id)
+    body = response.json()
+    assert body["id"] == str(vale.id)
+    assert body["is_deleted"] is True
+    assert "negocio" not in body
+    service.assert_awaited_once_with(db_session, vale.id, include_deleted=True)
 
 
-@pytest.mark.parametrize("role", [Role.CAJERO, Role.SOCIO, Role.CLIENTE])
-def test_get_audit_rechaza_roles_no_administrativos(
+@pytest.mark.parametrize(
+    "role",
+    [Role.OWNER, Role.ADMIN, Role.CAJERO, Role.SOCIO, Role.CLIENTE],
+)
+def test_get_audit_rechaza_roles_sin_permiso_audit(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
     role: Role,
 ) -> None:
     client, current_user, _ = route_context
     current_user.role = role
 
-    with patch.object(ValeService, "get_detail_audit", new=AsyncMock()) as service:
+    with patch.object(ValeService, "get", new=AsyncMock()) as service:
         response = client.get(f"/vales/{uuid4()}/audit")
 
     assert response.status_code == 403

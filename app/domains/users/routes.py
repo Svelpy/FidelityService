@@ -16,7 +16,7 @@ from app.domains.users.schemas import (
     AdminResetPassword,
     PasswordSelfUpdate,
     UserCreate,
-    UserDetailResponseAudit,
+    UserDetailResponse,
     UserMeResponse,
     UserResponse,
     UserResponseAudit,
@@ -143,7 +143,7 @@ async def update_me(
 async def list_users(
     current_user: Annotated[
         CurrentUser,
-        Depends(require_role(Role.SUPERADMIN, Role.OWNER, Role.ADMIN)),
+        Depends(require_permission(Module.USUARIO, Action.READ)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
@@ -193,7 +193,7 @@ async def reset_user_password(
     data: AdminResetPassword,
     current_user: Annotated[
         CurrentUser,
-        Depends(require_role(Role.SUPERADMIN, Role.OWNER, Role.ADMIN)),
+        Depends(require_permission(Module.USUARIO, Action.UPDATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponseAudit:
@@ -214,15 +214,24 @@ async def reset_user_password(
 )
 async def get_user_by_ci(
     ci: Annotated[str, Path(pattern=r"^\d{6,20}$")],
-    current_user: Annotated[CurrentUser, Depends(require_permission(Module.USUARIO, Action.READ))],
+    current_user: Annotated[
+        CurrentUser,
+        Depends(
+            require_role(
+                Role.ADMIN,
+                Role.CAJERO,
+                Role.SOCIO,
+            )
+        ),
+    ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> UserResponseAudit:
+) -> UserResponse:
     return await UserService.get_by_ci(db_session, ci)
 
 
 @router.get(
     "/{user_id}",
-    response_model=UserDetailResponseAudit,
+    response_model=UserDetailResponse,
     summary="Consultar usuario",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -230,8 +239,22 @@ async def get_user(
     user_id: UUID,
     current_user: Annotated[CurrentUser, Depends(require_permission(Module.USUARIO, Action.READ))],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> UserDetailResponseAudit:
+) -> UserDetailResponse:
     return await UserService.get_detail(db_session, user_id)
+
+
+@router.get(
+    "/{user_id}/audit",
+    response_model=UserResponseAudit,
+    summary="Consultar usuario con auditoría",
+    responses=_error_responses(401, 403, 404, 422, 500),
+)
+async def get_user_audit(
+    user_id: UUID,
+    current_user: Annotated[CurrentUser, Depends(require_permission(Module.USUARIO, Action.AUDIT))],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> UserResponseAudit:
+    return await UserService.get(db_session, user_id, include_deleted=True)
 
 
 @router.patch(

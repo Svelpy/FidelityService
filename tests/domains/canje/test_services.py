@@ -332,20 +332,17 @@ async def test_get_audit_reutiliza_consulta_de_detalle() -> None:
             return_value=(redemption, client, None, voucher, None, business)
         ),
     ) as get_records:
-        detail = await CanjeService.get_audit(
+        audit = await CanjeService.get_audit(
             session,
             redemption.id,
             uuid4(),
-            Role.ADMIN,
+            Role.SUPERADMIN,
             None,
         )
 
-    assert detail.canje.id == redemption.id
-    assert detail.usuario_cliente.id == client.id
-    assert detail.usuario_cajero_socio is None
-    assert detail.sucursal is None
-    assert detail.negocio.id == business.id
+    assert audit is redemption
     get_records.assert_awaited_once()
+    assert get_records.await_args.kwargs == {"include_deleted": True}
 
 
 @pytest.mark.asyncio
@@ -937,3 +934,30 @@ async def test_cancel_rechaza_canje_que_no_este_pendiente(
 
     assert error.value.status_code == 409
     session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("include_deleted", "filtra_eliminados"),
+    [(False, True), (True, False)],
+)
+async def test_get_detail_records_solo_incluye_eliminados_si_se_pide(
+    include_deleted: bool,
+    filtra_eliminados: bool,
+) -> None:
+    result = MagicMock()
+    result.one_or_none.return_value = (_redemption(), None, None, None, None, None)
+    session = _session()
+    session.execute.return_value = result
+
+    await CanjeService._get_detail_records(
+        session,
+        uuid4(),
+        uuid4(),
+        Role.SUPERADMIN,
+        None,
+        include_deleted=include_deleted,
+    )
+
+    statement = session.execute.await_args.args[0]
+    assert ("canje.is_deleted" in str(statement.whereclause)) is filtra_eliminados

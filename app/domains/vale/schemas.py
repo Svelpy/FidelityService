@@ -4,9 +4,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.domains.categoria.schemas import CategoriaResponse, CategoriaResponseAudit
-from app.domains.negocio.schemas import NegocioResponse, NegocioResponseAudit
-from app.domains.sucursal.schemas import SucursalResponse, SucursalResponseAudit
+from app.domains.categoria.schemas import CategoriaResponse
+from app.domains.negocio.schemas import NegocioResponse
+from app.domains.sucursal.schemas import SucursalResponse
 from app.shared.services.validators import (
     validator_non_empty_text,
     validator_positive_integer,
@@ -195,23 +195,6 @@ class ValeListResponse(BaseModel):
     )
 
 
-class ValeListResponseAudit(ValeListResponse):
-    vale: ValeResponseAudit
-    negocio: NegocioResponseAudit
-    categoria: CategoriaResponseAudit
-
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_schema_extra={
-            "example": {
-                "vale": ValeResponseAudit.model_json_schema()["example"],
-                "negocio": NegocioResponseAudit.model_json_schema()["example"],
-                "categoria": CategoriaResponseAudit.model_json_schema()["example"],
-            }
-        },
-    )
-
-
 class ValeDetailResponse(BaseModel):
     vale: ValeResponse
     categoria: CategoriaResponse
@@ -227,27 +210,6 @@ class ValeDetailResponse(BaseModel):
                 "negocio": NegocioResponse.model_json_schema()["example"],
                 "sucursales": [
                     SucursalResponse.model_json_schema()["example"]
-                ],
-            }
-        },
-    )
-
-
-class ValeDetailResponseAudit(ValeDetailResponse):
-    vale: ValeResponseAudit
-    categoria: CategoriaResponseAudit
-    negocio: NegocioResponseAudit
-    sucursales: list[SucursalResponseAudit]
-
-    model_config = ConfigDict(
-        from_attributes=True,
-        json_schema_extra={
-            "example": {
-                "vale": ValeResponseAudit.model_json_schema()["example"],
-                "categoria": CategoriaResponseAudit.model_json_schema()["example"],
-                "negocio": NegocioResponseAudit.model_json_schema()["example"],
-                "sucursales": [
-                    SucursalResponseAudit.model_json_schema()["example"]
                 ],
             }
         },

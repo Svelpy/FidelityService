@@ -22,8 +22,12 @@ from app.domains.canje.schemas import (
     CanjeListResponse,
 )
 from app.domains.canje.services import CanjeService
+from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.domains.negocio.models import Negocio
+from app.domains.sucursal.models import Sucursal
+from app.domains.sucursal.services import SucursalService
 from app.domains.users.models import User
+from app.domains.users.services import UserService
 from app.domains.vale.models import Vale
 from app.middlewares.exception_handlers import register_exception_handlers
 from app.shared.enums import EstadoCanje, Genero, Role, TipoNegocio
@@ -513,6 +517,39 @@ def test_cancel_delega_identidad_del_cajero(
         principal.role,
         principal.sucursal_id,
     )
+
+
+@pytest.mark.parametrize(
+    "role",
+    [Role.SUPERADMIN, Role.OWNER, Role.ADMIN, Role.CAJERO, Role.SOCIO],
+)
+def test_cancel_endpoint_y_service_aceptan_los_mismos_roles(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+    role: Role,
+) -> None:
+    """Endpoint y service reales: todo rol que el endpoint deja entrar debe
+    poder cancelar. Evita que el service rechace a un rol que la route admite."""
+    client, principal, _ = route_context
+    principal.role = role
+    principal.sucursal_id = uuid4() if role in {Role.CAJERO, Role.SOCIO} else None
+    redemption = _redemption()
+    customer = _user(redemption.cliente_id)
+    branch = Sucursal(nombre="Central", negocio_id=uuid4())
+
+    with (
+        patch.object(CanjeService, "_get_raw", new=AsyncMock(return_value=redemption)),
+        patch.object(SucursalService, "get", new=AsyncMock(return_value=branch)),
+        patch.object(
+            MovimientoPuntosService,
+            "get_by_redemption_id",
+            new=AsyncMock(return_value=None),
+        ),
+        patch.object(UserService, "get", new=AsyncMock(return_value=customer)),
+    ):
+        response = client.post(f"/canjes/{redemption.id}/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == EstadoCanje.CANCELADO.value
 
 
 @pytest.mark.parametrize(

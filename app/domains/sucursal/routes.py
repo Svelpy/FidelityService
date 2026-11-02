@@ -61,7 +61,7 @@ async def list_sucursales(
 
 @router.post(
     "/",
-    response_model=SucursalResponseAudit,
+    response_model=SucursalResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear sucursal",
     responses=_error_responses(401, 403, 404, 409, 422, 500),
@@ -73,7 +73,7 @@ async def create_sucursal(
         Depends(require_permission(Module.SUCURSAL, Action.CREATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> SucursalResponseAudit:
+) -> SucursalResponse:
     return await SucursalService.create(
         db_session,
         data,
@@ -117,7 +117,7 @@ async def get_sucursal_audit(
 
 @router.patch(
     "/{sucursal_id}",
-    response_model=SucursalResponseAudit,
+    response_model=SucursalResponse,
     summary="Actualizar sucursal",
     responses=_error_responses(401, 403, 404, 409, 422, 500),
 )
@@ -129,7 +129,7 @@ async def update_sucursal(
         Depends(require_permission(Module.SUCURSAL, Action.UPDATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> SucursalResponseAudit:
+) -> SucursalResponse:
     return await SucursalService.update(
         db_session,
         sucursal_id,

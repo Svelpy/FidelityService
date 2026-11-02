@@ -76,7 +76,7 @@ async def list_config_puntos(
 
 @router.post(
     "/",
-    response_model=ConfigPuntosResponseAudit,
+    response_model=ConfigPuntosResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Sustituir configuración de puntos activa",
     responses=_error_responses(401, 403, 409, 422, 500),
@@ -88,7 +88,7 @@ async def replace_config_puntos(
         Depends(require_permission(Module.CONFIG_PUNTOS, Action.CREATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> ConfigPuntosResponseAudit:
+) -> ConfigPuntosResponse:
     return await ConfigPuntosService.replace(
         db_session,
         data,

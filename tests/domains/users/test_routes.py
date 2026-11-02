@@ -348,7 +348,7 @@ def test_get_user_by_ci_delega_consulta_administrativa(
     assert "user" not in response.json()
     assert "sucursal" not in response.json()
     assert "negocio" not in response.json()
-    service.assert_awaited_once_with(db_session, user.ci)
+    service.assert_awaited_once_with(db_session, user.ci, actor_role)
 
 
 @pytest.mark.parametrize("actor_role", [Role.SUPERADMIN, Role.OWNER, Role.CLIENTE])

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -31,9 +31,72 @@ class MovimientoPuntosService:
     """Cambios de saldo y registro del libro mayor de puntos."""
 
     _MAX_USER_POINTS = 2_147_483_647
-    _ROLES_ALLOWED_TO_QUERY_USERS = frozenset(
-        {Role.SUPERADMIN, Role.ADMIN, Role.CAJERO, Role.SOCIO, Role.OWNER}
+    _ROLES_WITH_GLOBAL_VISIBILITY = frozenset(
+        {Role.SUPERADMIN, Role.OWNER, Role.ADMIN}
     )
+    _BUSINESS_SCOPED_ROLES = frozenset({Role.CAJERO})
+
+    @classmethod
+    def _visibility_filters(
+        cls,
+        actor_id: UUID,
+        actor_role: Role,
+        actor_sucursal_id: UUID | None,
+    ) -> list[object]:
+        """Filas de movimientos que el actor puede ver.
+
+        - Roles globales: todos los movimientos.
+        - Cliente: solo sus propios movimientos.
+        - Roles acotados al negocio: movimientos originados por operaciones o
+          canjes del negocio de su sucursal (incluye los AJUSTE cuyo
+          movimiento de origen es un canje de ese negocio).
+        - Cualquier otro rol: ninguno.
+        """
+        if actor_role in cls._ROLES_WITH_GLOBAL_VISIBILITY:
+            return []
+        if actor_role is Role.CLIENTE:
+            return [MovimientoPuntos.usuario_id == actor_id]
+        if actor_role in cls._BUSINESS_SCOPED_ROLES:
+            # Alias propios: get_detail y list ya unen estas tablas en la
+            # consulta exterior y no deben correlacionarse con ella.
+            actor_branch = aliased(Sucursal)
+            operation_branch = aliased(Sucursal)
+            scoped_operation = aliased(Operacion)
+            scoped_redemption = aliased(Canje)
+            scoped_voucher = aliased(Vale)
+            origin_movement = aliased(MovimientoPuntos)
+
+            actor_business_id = (
+                select(actor_branch.negocio_id)
+                .where(actor_branch.id == actor_sucursal_id)
+                .scalar_subquery()
+            )
+            business_operations = (
+                select(scoped_operation.id)
+                .join(
+                    operation_branch,
+                    operation_branch.id == scoped_operation.sucursal_id,
+                )
+                .where(operation_branch.negocio_id == actor_business_id)
+            )
+            business_redemptions = (
+                select(scoped_redemption.id)
+                .join(scoped_voucher, scoped_voucher.id == scoped_redemption.vale_id)
+                .where(scoped_voucher.negocio_id == actor_business_id)
+            )
+            business_adjustment_origins = select(origin_movement.id).where(
+                origin_movement.canje_id.in_(business_redemptions)
+            )
+            return [
+                or_(
+                    MovimientoPuntos.operacion_id.in_(business_operations),
+                    MovimientoPuntos.canje_id.in_(business_redemptions),
+                    MovimientoPuntos.movimiento_origen_id.in_(
+                        business_adjustment_origins
+                    ),
+                )
+            ]
+        return [MovimientoPuntos.id.is_(None)]
 
     @staticmethod
     async def get(
@@ -71,12 +134,14 @@ class MovimientoPuntosService:
         result = await db_session.execute(statement)
         return result.scalar_one_or_none()
 
-    @staticmethod
+    @classmethod
     async def get_detail(
+        cls,
         db_session: AsyncSession,
         movement_id: UUID,
         actor_id: UUID,
         actor_role: Role,
+        actor_sucursal_id: UUID | None,
     ) -> MovimientoPuntosDetailResponse:
         origin_movement = aliased(MovimientoPuntos)
         redemption_id = func.coalesce(
@@ -88,9 +153,8 @@ class MovimientoPuntosService:
         filters = [
             MovimientoPuntos.id == movement_id,
             MovimientoPuntos.is_deleted.is_(False),
+            *cls._visibility_filters(actor_id, actor_role, actor_sucursal_id),
         ]
-        if actor_role is Role.CLIENTE:
-            filters.append(MovimientoPuntos.usuario_id == actor_id)
 
         statement = (
             select(
@@ -198,19 +262,15 @@ class MovimientoPuntosService:
     async def list(
         cls,
         db_session: AsyncSession,
+        actor_id: UUID,
         actor_role: Role,
+        actor_sucursal_id: UUID | None,
         *,
         page: int = 1,
         per_page: int = 20,
         user_id: UUID | None = None,
         movement_type: TipoMovimiento | None = None,
     ) -> PaginatedResponse[MovimientoPuntosListResponse]:
-        if actor_role not in cls._ROLES_ALLOWED_TO_QUERY_USERS:
-            raise AppException(
-                "No tienes permisos para consultar movimientos de usuarios.",
-                403,
-                ErrorCode.PERMISSION_DENIED,
-            )
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
                 "La paginación indicada no es válida.",
@@ -220,6 +280,7 @@ class MovimientoPuntosService:
 
         filters = [
             MovimientoPuntos.is_deleted.is_(False),
+            *cls._visibility_filters(actor_id, actor_role, actor_sucursal_id),
         ]
         if user_id is not None:
             filters.append(MovimientoPuntos.usuario_id == user_id)

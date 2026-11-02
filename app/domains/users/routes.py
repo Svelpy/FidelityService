@@ -164,7 +164,7 @@ async def list_users(
 
 @router.post(
     "/",
-    response_model=UserResponseAudit,
+    response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear usuario",
     responses=_error_responses(401, 403, 409, 422, 500),
@@ -173,7 +173,7 @@ async def create_user(
     data: UserCreate,
     current_user: Annotated[CurrentUser, Depends(require_permission(Module.USUARIO, Action.CREATE))],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> UserResponseAudit:
+) -> UserResponse:
     return await UserService.create(
         db_session,
         data,
@@ -184,7 +184,7 @@ async def create_user(
 
 @router.patch(
     "/{user_id}/password",
-    response_model=UserResponseAudit,
+    response_model=UserResponse,
     summary="Restablecer contraseña de usuario",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -196,7 +196,7 @@ async def reset_user_password(
         Depends(require_permission(Module.USUARIO, Action.UPDATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> UserResponseAudit:
+) -> UserResponse:
     return await UserService.reset_password(
         db_session,
         user_id,
@@ -226,7 +226,7 @@ async def get_user_by_ci(
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:
-    return await UserService.get_by_ci(db_session, ci)
+    return await UserService.get_by_ci(db_session, ci, current_user.role)
 
 
 @router.get(
@@ -259,7 +259,7 @@ async def get_user_audit(
 
 @router.patch(
     "/{user_id}",
-    response_model=UserResponseAudit,
+    response_model=UserResponse,
     summary="Actualizar usuario",
     responses=_error_responses(401, 403, 404, 409, 422, 500),
 )
@@ -268,7 +268,7 @@ async def update_user(
     data: UserUpdate,
     current_user: Annotated[CurrentUser, Depends(require_permission(Module.USUARIO, Action.UPDATE))],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> UserResponseAudit:
+) -> UserResponse:
     return await UserService.update(
         db_session,
         user_id,

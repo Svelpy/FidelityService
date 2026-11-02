@@ -11,6 +11,7 @@ from app.domains.operacion.schemas import (
     OperacionCreate,
     OperacionDetailResponse,
     OperacionListResponse,
+    OperacionResponse,
     OperacionResponseAudit,
 )
 from app.domains.operacion.services import OperacionService
@@ -111,7 +112,7 @@ async def get_operacion_audit(
 
 @router.post(
     "/",
-    response_model=OperacionResponseAudit,
+    response_model=OperacionResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Registrar compra y acumular puntos",
     responses=_error_responses(401, 403, 404, 409, 422, 500),
@@ -123,7 +124,7 @@ async def create_operacion(
         Depends(require_permission(Module.OPERACION, Action.CREATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> OperacionResponseAudit:
+) -> OperacionResponse:
     return await OperacionService.create(
         db_session,
         data,

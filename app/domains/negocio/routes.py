@@ -10,6 +10,7 @@ from app.domains.auth.dependencies import require_permission
 from app.domains.auth.schemas import CurrentUser
 from app.domains.negocio.schemas import (
     NegocioCreate,
+    NegocioResponse,
     NegocioResponseAudit,
     NegocioSucursalesResponse,
     NegocioUpdate,
@@ -63,7 +64,7 @@ async def list_negocios(
 
 @router.post(
     "/",
-    response_model=NegocioResponseAudit,
+    response_model=NegocioResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear negocio",
     responses=_error_responses(401, 403, 409, 422, 500),
@@ -75,7 +76,7 @@ async def create_negocio(
         Depends(require_permission(Module.NEGOCIO, Action.CREATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> NegocioResponseAudit:
+) -> NegocioResponse:
     return await NegocioService.create(
         db_session,
         data,
@@ -85,7 +86,7 @@ async def create_negocio(
 
 @router.post(
     "/{negocio_id}/image",
-    response_model=NegocioResponseAudit,
+    response_model=NegocioResponse,
     summary="Subir o reemplazar imagen de negocio",
     responses=_error_responses(400, 401, 403, 404, 422, 500),
 )
@@ -98,7 +99,7 @@ async def upload_negocio_image(
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
-) -> NegocioResponseAudit:
+) -> NegocioResponse:
     return await NegocioService.upload_image(
         db_session,
         negocio_id,
@@ -110,7 +111,7 @@ async def upload_negocio_image(
 
 @router.delete(
     "/{negocio_id}/image",
-    response_model=NegocioResponseAudit,
+    response_model=NegocioResponse,
     summary="Eliminar imagen de negocio",
     responses=_error_responses(401, 403, 404, 422, 500),
 )
@@ -121,7 +122,7 @@ async def delete_negocio_image(
         Depends(require_permission(Module.NEGOCIO, Action.UPDATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> NegocioResponseAudit:
+) -> NegocioResponse:
     return await NegocioService.delete_image(
         db_session,
         negocio_id,
@@ -165,7 +166,7 @@ async def get_negocio_audit(
 
 @router.patch(
     "/{negocio_id}",
-    response_model=NegocioResponseAudit,
+    response_model=NegocioResponse,
     summary="Actualizar negocio",
     responses=_error_responses(401, 403, 404, 409, 422, 500),
 )
@@ -177,7 +178,7 @@ async def update_negocio(
         Depends(require_permission(Module.NEGOCIO, Action.UPDATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> NegocioResponseAudit:
+) -> NegocioResponse:
     return await NegocioService.update(
         db_session,
         negocio_id,

@@ -17,6 +17,7 @@ from app.domains.vale.schemas import (
     ValeListResponse,
     ValePuntosSuggestionRequest,
     ValePuntosSuggestionResponse,
+    ValeResponse,
     ValeResponseAudit,
     ValeUpdate,
 )
@@ -135,7 +136,7 @@ async def list_vales(
 
 @router.post(
     "/",
-    response_model=ValeResponseAudit,
+    response_model=ValeResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear vale",
     responses=_error_responses(400, 401, 403, 404, 409, 422, 500),
@@ -152,7 +153,7 @@ async def create_vale(
         UploadFile | None,
         File(description="Imagen opcional del vale"),
     ] = None,
-) -> ValeResponseAudit:
+) -> ValeResponse:
     return await ValeService.create(
         db_session,
         data,
@@ -198,7 +199,7 @@ async def get_vale_audit(
 
 @router.patch(
     "/{vale_id}",
-    response_model=ValeResponseAudit,
+    response_model=ValeResponse,
     summary="Actualizar vale",
     responses=_error_responses(400, 401, 403, 404, 409, 422, 500),
 )
@@ -215,7 +216,7 @@ async def update_vale(
         UploadFile | None,
         File(description="Nueva imagen opcional del vale"),
     ] = None,
-) -> ValeResponseAudit:
+) -> ValeResponse:
     return await ValeService.update(
         db_session,
         vale_id,

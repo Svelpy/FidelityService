@@ -106,7 +106,7 @@ async def list_my_canjes(
 
 @router.post(
     "/",
-    response_model=CanjeResponseAudit,
+    response_model=CanjeResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Solicitar canje de un vale",
     responses=_error_responses(401, 403, 404, 409, 422, 503, 500),
@@ -118,7 +118,7 @@ async def create_canje(
         Depends(require_permission(Module.CANJE, Action.CREATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> CanjeResponseAudit:
+) -> CanjeResponse:
     return await CanjeService.create(
         db_session,
         data,
@@ -258,10 +258,18 @@ async def cancel_canje(
     canje_id: UUID,
     current_user: Annotated[
         CurrentUser,
-        Depends(require_permission(Module.CANJE, Action.UPDATE)),
+        Depends(
+            require_role(
+                Role.SUPERADMIN,
+                Role.OWNER,
+                Role.ADMIN,
+                Role.CAJERO,
+                Role.SOCIO,
+            )
+        ),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> CanjeResponseAudit:
+) -> CanjeResponse:
     return await CanjeService.cancel(
         db_session,
         canje_id,

@@ -93,7 +93,7 @@ async def get_categoria_audit(
 
 @router.post(
     "/",
-    response_model=CategoriaResponseAudit,
+    response_model=CategoriaResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear categoría",
     responses=_error_responses(401, 403, 409, 422, 500),
@@ -105,7 +105,7 @@ async def create_categoria(
         Depends(require_permission(Module.CATEGORIA, Action.CREATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> CategoriaResponseAudit:
+) -> CategoriaResponse:
     return await CategoriaService.create(
         db_session,
         data,
@@ -115,7 +115,7 @@ async def create_categoria(
 
 @router.patch(
     "/{categoria_id}",
-    response_model=CategoriaResponseAudit,
+    response_model=CategoriaResponse,
     summary="Actualizar categoría",
     responses=_error_responses(401, 403, 404, 409, 422, 500),
 )
@@ -127,7 +127,7 @@ async def update_categoria(
         Depends(require_permission(Module.CATEGORIA, Action.UPDATE)),
     ],
     db_session: Annotated[AsyncSession, Depends(get_db)],
-) -> CategoriaResponseAudit:
+) -> CategoriaResponse:
     return await CategoriaService.update(
         db_session,
         categoria_id,

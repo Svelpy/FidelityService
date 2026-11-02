@@ -134,14 +134,20 @@ class CanjeService:
         db_session: AsyncSession,
         redemption_id: UUID,
         *,
+        business_id: UUID | None = None,
         for_update: bool = False,
     ) -> Canje:
         statement = select(Canje).where(
             Canje.id == redemption_id,
             Canje.is_deleted.is_(False),
         )
+        if business_id is not None:
+            # Alcance por negocio: un canje de otro negocio no se encuentra.
+            statement = statement.join(Vale, Vale.id == Canje.vale_id).where(
+                Vale.negocio_id == business_id
+            )
         if for_update:
-            statement = statement.with_for_update()
+            statement = statement.with_for_update(of=Canje)
         result = await db_session.execute(statement)
         redemption = result.scalar_one_or_none()
         if redemption is None:
@@ -549,6 +555,11 @@ class CanjeService:
                 ErrorCode.PERMISSION_DENIED,
             )
 
+        # El alcance se aplica en la propia consulta: un canje de otro negocio
+        # responde 404 antes de revelar su estado o de escribir sobre él.
+        # Aplica a todo rol que canjea, incluido ADMIN, porque la sucursal del
+        # canje debe pertenecer al negocio del vale.
+        branch = await SucursalService.get(db_session, actor_sucursal_id)
         result = await db_session.execute(
             select(Canje, Vale, Negocio, User)
             .join(Vale, Vale.id == Canje.vale_id)
@@ -557,6 +568,7 @@ class CanjeService:
             .where(
                 Canje.id == redemption_id,
                 Canje.is_deleted.is_(False),
+                Vale.negocio_id == branch.negocio_id,
             )
             .with_for_update(of=Canje)
         )
@@ -588,14 +600,6 @@ class CanjeService:
                 ErrorCode.CONFLICT,
             )
 
-        branch = await SucursalService.get(db_session, actor_sucursal_id)
-        if branch.negocio_id != voucher.negocio_id:
-            raise AppException(
-                "El vale no puede canjearse en la sucursal del dador.",
-                422,
-                ErrorCode.VALIDATION_ERROR,
-                {"sucursal_id": "La sucursal pertenece a otro negocio."},
-            )
         redemption.status = EstadoCanje.CANJEADO
         redemption.dador_id = actor_id
         redemption.sucursal_id = branch.id
@@ -631,11 +635,7 @@ class CanjeService:
                 403,
                 ErrorCode.PERMISSION_DENIED,
             )
-        redemption = await cls._get_raw(
-            db_session,
-            redemption_id,
-            for_update=True,
-        )
+        business_id: UUID | None = None
         if actor_role in cls._BUSINESS_SCOPED_ROLES:
             if actor_sucursal_id is None:
                 raise AppException(
@@ -643,15 +643,17 @@ class CanjeService:
                     403,
                     ErrorCode.PERMISSION_DENIED,
                 )
-
             branch = await SucursalService.get(db_session, actor_sucursal_id)
-            voucher = await ValeService.get(db_session, redemption.vale_id)
-            if branch.negocio_id != voucher.negocio_id:
-                raise AppException(
-                    "No tienes permisos para cancelar este canje.",
-                    403,
-                    ErrorCode.PERMISSION_DENIED,
-                )
+            business_id = branch.negocio_id
+
+        # El alcance se aplica en la propia consulta: un canje de otro negocio
+        # responde 404 antes de revelar su estado o de escribir sobre él.
+        redemption = await cls._get_raw(
+            db_session,
+            redemption_id,
+            business_id=business_id,
+            for_update=True,
+        )
 
         if redemption.status is not EstadoCanje.PENDIENTE:
             raise AppException(

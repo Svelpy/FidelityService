@@ -15,29 +15,29 @@ from app.shared.enums import Action, Module, Role
 
 ROLE_PERMISSIONS: dict[Role, dict[Module, frozenset[Action]]] = {
     Role.SUPERADMIN: {
-        Module.CANJE: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.AUDIT}),  # no existe delete
+        Module.CANJE: frozenset({Action.READ, Action.AUDIT}),  # no existe delete
         Module.CATEGORIA: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE, Action.AUDIT}),
         Module.CONFIG_PUNTOS: frozenset({Action.CREATE, Action.READ, Action.AUDIT}),  # no existe delete ni update
         Module.MOVIMIENTOS_PUNTOS: frozenset({Action.READ, Action.AUDIT}),  # no existe create, update, delete
         Module.NEGOCIO: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE, Action.AUDIT}),
-        Module.OPERACION: frozenset({Action.CREATE, Action.READ, Action.AUDIT}),  # no existe delete ni update
+        Module.OPERACION: frozenset({Action.READ, Action.AUDIT}),  # no existe delete ni update
         Module.SUCURSAL: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE, Action.AUDIT}),
         Module.USUARIO: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE, Action.AUDIT}),
         Module.VALE: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE, Action.AUDIT}),
     },
     Role.OWNER: {
-        Module.CANJE: frozenset({Action.CREATE, Action.READ, Action.UPDATE}),  # no existe delete
+        Module.CANJE: frozenset({Action.READ}),  # no existe delete
         Module.CATEGORIA: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
         Module.CONFIG_PUNTOS: frozenset({Action.CREATE, Action.READ}),  # no existe delete ni update
         Module.MOVIMIENTOS_PUNTOS: frozenset({Action.READ}),  # no existe create, update, delete
         Module.NEGOCIO: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
-        Module.OPERACION: frozenset({Action.CREATE, Action.READ}),  # no existe delete ni update
+        Module.OPERACION: frozenset({Action.READ}),  # no existe delete ni update
         Module.SUCURSAL: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
         Module.USUARIO: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
         Module.VALE: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
     },
     Role.ADMIN: {
-        Module.CANJE: frozenset({Action.CREATE, Action.READ, Action.UPDATE}),  # no existe delete
+        Module.CANJE: frozenset({Action.READ, Action.UPDATE}),  # no existe delete
         Module.CATEGORIA: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
         Module.CONFIG_PUNTOS: frozenset({Action.CREATE, Action.READ}),  # no existe delete ni update
         Module.MOVIMIENTOS_PUNTOS: frozenset({Action.READ}),  # no existe create, update, delete

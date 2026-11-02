@@ -42,6 +42,10 @@ class UserService:
 
     _ROLES_REQUIRING_SUCURSAL = frozenset({Role.ADMIN, Role.CAJERO, Role.SOCIO})
     _ROLES_WITHOUT_SUCURSAL = frozenset({Role.SUPERADMIN, Role.OWNER, Role.CLIENTE})
+    _ROLES_WITH_GLOBAL_VISIBILITY = frozenset(
+        {Role.SUPERADMIN, Role.OWNER, Role.ADMIN}
+    )
+    _ROLES_LIMITED_TO_CLIENTS = frozenset({Role.CAJERO, Role.SOCIO})
 
     _ROLE_LEVEL = {
         Role.CLIENTE: 1,
@@ -365,15 +369,32 @@ class UserService:
             negocio=negocio,
         )
 
-    @staticmethod
+    @classmethod
+    def _visibility_filters(cls, actor_role: Role) -> list[object]:
+        """Usuarios que el actor puede encontrar.
+
+        - Roles globales: cualquier usuario.
+        - Cajero y socio: solo clientes.
+        - Cualquier otro rol: ninguno.
+        """
+        if actor_role in cls._ROLES_WITH_GLOBAL_VISIBILITY:
+            return []
+        if actor_role in cls._ROLES_LIMITED_TO_CLIENTS:
+            return [User.role == Role.CLIENTE]
+        return [User.id.is_(None)]
+
+    @classmethod
     async def get_by_ci(
+        cls,
         db_session: AsyncSession,
         ci: str,
+        actor_role: Role,
     ) -> User:
         result = await db_session.execute(
             select(User).where(
                 User.ci == ci,
                 User.is_deleted.is_(False),
+                *cls._visibility_filters(actor_role),
             )
         )
         user = result.scalar_one_or_none()

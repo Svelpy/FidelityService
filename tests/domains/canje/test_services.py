@@ -595,6 +595,9 @@ async def test_redeem_confirma_sin_modificar_saldo_ni_registrar_movimiento(
     ]
     assert movements == []
     session.commit.assert_awaited_once()
+    statement = session.execute.await_args.args[0]
+    assert "vale.negocio_id = " in str(statement.whereclause)
+    assert business_id in statement.compile().params.values()
 
 
 @pytest.mark.asyncio
@@ -611,14 +614,18 @@ async def test_redeem_marca_codigo_expirado_sin_descontar() -> None:
         MagicMock(),
     )
     session.execute.return_value = result
+    branch = Sucursal(nombre="Central", negocio_id=uuid4())
 
-    with pytest.raises(AppException) as error:
+    with (
+        patch.object(SucursalService, "get", new=AsyncMock(return_value=branch)),
+        pytest.raises(AppException) as error,
+    ):
         await CanjeService.redeem(
             session,
             redemption.id,
             uuid4(),
             Role.SOCIO,
-            uuid4(),
+            branch.id,
         )
 
     assert error.value.status_code == 409
@@ -628,47 +635,51 @@ async def test_redeem_marca_codigo_expirado_sin_descontar() -> None:
 
 
 @pytest.mark.asyncio
-async def test_redeem_rechaza_sucursal_de_otro_negocio() -> None:
+@pytest.mark.parametrize("role", [Role.CAJERO, Role.SOCIO, Role.ADMIN])
+async def test_redeem_responde_404_para_canje_de_otro_negocio_sin_escribir(
+    role: Role,
+) -> None:
+    """Un canje de otro negocio no se encuentra: no revela su estado ni lo modifica,
+    aunque esté vencido."""
     session = _session()
-    redemption = _redemption()
     branch = Sucursal(nombre="Otra", negocio_id=uuid4())
-    voucher = Vale(
-        total_costo=Decimal("50.00"),
-        total_puntos=500,
-        nombre="Vale",
-        categoria_id=uuid4(),
-        negocio_id=uuid4(),
-    )
-    voucher.id = redemption.vale_id
-    business = Negocio(
-        id=voucher.negocio_id,
-        nombre="Negocio",
-        tipo=TipoNegocio.SOCIO,
-    )
-    client = _client()
-    client.id = redemption.cliente_id
     result = MagicMock()
-    result.one_or_none.return_value = (redemption, voucher, business, client)
+    # La consulta filtra por el negocio de la sucursal del actor: no hay fila.
+    result.one_or_none.return_value = None
     session.execute.return_value = result
 
-    with patch.object(
-        SucursalService,
-        "get",
-        new=AsyncMock(return_value=branch),
+    with (
+        patch.object(SucursalService, "get", new=AsyncMock(return_value=branch)),
+        pytest.raises(AppException) as error,
     ):
-        with pytest.raises(AppException) as error:
-            await CanjeService.redeem(
-                session,
-                redemption.id,
-                uuid4(),
-                Role.CAJERO,
-                branch.id,
-            )
+        await CanjeService.redeem(
+            session,
+            uuid4(),
+            uuid4(),
+            role,
+            branch.id,
+        )
 
-    assert error.value.status_code == 422
-    assert redemption.dador_id is None
-    assert redemption.sucursal_id is None
+    assert error.value.status_code == 404
+    session.commit.assert_not_awaited()
     session.add.assert_not_called()
+    statement = session.execute.await_args.args[0]
+    assert branch.negocio_id in statement.compile().params.values()
+
+
+@pytest.mark.asyncio
+async def test_redeem_rechaza_rol_sin_sucursal_antes_de_consultar() -> None:
+    session = _session()
+
+    with (
+        patch.object(SucursalService, "get", new=AsyncMock()) as get_branch,
+        pytest.raises(AppException) as error,
+    ):
+        await CanjeService.redeem(session, uuid4(), uuid4(), Role.CAJERO, None)
+
+    assert error.value.status_code == 403
+    get_branch.assert_not_awaited()
+    session.execute.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
@@ -702,12 +713,14 @@ async def test_cancel_permite_roles_autorizados_en_canje_pendiente(
         canje_id=redemption.id,
     )
 
+    business_scoped = role in {Role.CAJERO, Role.SOCIO}
+
     with (
         patch.object(
             CanjeService,
             "_get_raw",
             new=AsyncMock(return_value=redemption),
-        ),
+        ) as get_raw,
         patch.object(
             MovimientoPuntosService,
             "get_by_redemption_id",
@@ -715,16 +728,20 @@ async def test_cancel_permite_roles_autorizados_en_canje_pendiente(
         ),
         patch.object(UserService, "get", new=AsyncMock(return_value=client)),
         patch.object(SucursalService, "get", new=AsyncMock(return_value=branch)),
-        patch.object(ValeService, "get", new=AsyncMock(return_value=voucher)),
     ):
         cancelled = await CanjeService.cancel(
             session,
             redemption.id,
             actor_id,
             role,
-            branch.id if role in {Role.CAJERO, Role.SOCIO} else None,
+            branch.id if business_scoped else None,
         )
 
+    expected_business_id = voucher.negocio_id if business_scoped else None
+    assert get_raw.await_args.kwargs == {
+        "business_id": expected_business_id,
+        "for_update": True,
+    }
     assert cancelled.status is EstadoCanje.CANCELADO
     assert client.puntos == 700
     assert client.updated_by == actor_id
@@ -741,53 +758,68 @@ async def test_cancel_permite_roles_autorizados_en_canje_pendiente(
 
 
 @pytest.mark.asyncio
-async def test_cancel_rechaza_operador_de_otro_negocio() -> None:
+@pytest.mark.parametrize("role", [Role.CAJERO, Role.SOCIO])
+async def test_cancel_responde_404_para_canje_de_otro_negocio_sin_escribir(
+    role: Role,
+) -> None:
+    """Un canje de otro negocio no se encuentra: no revela su existencia ni su
+    estado, y no se modifica."""
     session = _session()
-    redemption = _redemption()
     branch = Sucursal(nombre="Central", negocio_id=uuid4())
-    voucher = Vale(
-        id=redemption.vale_id,
-        total_costo=redemption.total_costo,
-        total_puntos=redemption.total_puntos,
-        nombre="Vale aliado",
-        categoria_id=uuid4(),
-        negocio_id=uuid4(),
-    )
+    result = MagicMock()
+    # La consulta filtra por el negocio de la sucursal del actor: no hay fila.
+    result.scalar_one_or_none.return_value = None
+    session.execute.return_value = result
 
     with (
-        patch.object(
-            CanjeService,
-            "_get_raw",
-            new=AsyncMock(return_value=redemption),
-        ),
-        patch.object(
-            SucursalService,
-            "get",
-            new=AsyncMock(return_value=branch),
-        ),
-        patch.object(ValeService, "get", new=AsyncMock(return_value=voucher)),
+        patch.object(SucursalService, "get", new=AsyncMock(return_value=branch)),
         patch.object(
             MovimientoPuntosService,
             "get_by_redemption_id",
             new=AsyncMock(),
         ) as get_movement,
         patch.object(UserService, "get", new=AsyncMock()) as get_user,
+        pytest.raises(AppException) as error,
     ):
-        with pytest.raises(AppException) as error:
-            await CanjeService.cancel(
-                session,
-                redemption.id,
-                uuid4(),
-                Role.CAJERO,
-                branch.id,
-            )
+        await CanjeService.cancel(
+            session,
+            uuid4(),
+            uuid4(),
+            role,
+            branch.id,
+        )
 
-    assert error.value.status_code == 403
-    assert error.value.code == "PERMISSION_DENIED"
-    assert redemption.status is EstadoCanje.PENDIENTE
+    assert error.value.status_code == 404
     get_movement.assert_not_awaited()
     get_user.assert_not_awaited()
     session.commit.assert_not_awaited()
+    statement = session.execute.await_args.args[0]
+    assert "vale.negocio_id = " in str(statement.whereclause)
+    assert branch.negocio_id in statement.compile().params.values()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("business_id", [None, uuid4()])
+async def test_get_raw_solo_filtra_por_negocio_si_se_indica(
+    business_id: object,
+) -> None:
+    redemption = _redemption()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = redemption
+    session = _session()
+    session.execute.return_value = result
+
+    found = await CanjeService._get_raw(
+        session,
+        redemption.id,
+        business_id=business_id,
+        for_update=True,
+    )
+
+    assert found is redemption
+    statement = session.execute.await_args.args[0]
+    filtra_por_negocio = "vale.negocio_id" in str(statement.whereclause)
+    assert filtra_por_negocio is (business_id is not None)
 
 
 @pytest.mark.asyncio
@@ -800,9 +832,8 @@ async def test_cancel_rechaza_operador_sin_sucursal() -> None:
             CanjeService,
             "_get_raw",
             new=AsyncMock(return_value=redemption),
-        ),
+        ) as get_raw,
         patch.object(SucursalService, "get", new=AsyncMock()) as get_branch,
-        patch.object(ValeService, "get", new=AsyncMock()) as get_voucher,
     ):
         with pytest.raises(AppException) as error:
             await CanjeService.cancel(
@@ -815,7 +846,7 @@ async def test_cancel_rechaza_operador_sin_sucursal() -> None:
 
     assert error.value.status_code == 403
     get_branch.assert_not_awaited()
-    get_voucher.assert_not_awaited()
+    get_raw.assert_not_awaited()
     session.commit.assert_not_awaited()
 
 

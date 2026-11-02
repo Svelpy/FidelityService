@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.api import api_router
 from app.core.database import get_db
 from app.domains.auth.dependencies import get_current_principal
 from app.domains.auth.schemas import CurrentUser
@@ -161,3 +162,47 @@ async def test_get_solo_incluye_eliminados_si_se_pide(
 
     statement = session.execute.await_args.args[0]
     assert (column in str(statement.whereclause)) is filtra_eliminados
+
+
+def _schema_properties(components: dict, ref: str, seen: frozenset[str] = frozenset()) -> set[str]:
+    """Propiedades de un schema de OpenAPI, incluidas las de sus schemas anidados."""
+    name = ref.split("/")[-1]
+    if name in seen:
+        return set()
+    schema = components[name]
+    properties = set(schema.get("properties", {}))
+    pending: list[object] = [schema]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, dict):
+            if "$ref" in node:
+                properties |= _schema_properties(components, node["$ref"], seen | {name})
+            pending.extend(node.values())
+        elif isinstance(node, list):
+            pending.extend(node)
+    return properties
+
+
+def test_solo_los_endpoints_audit_exponen_campos_de_auditoria() -> None:
+    app = FastAPI()
+    app.include_router(api_router)
+    spec = app.openapi()
+    components = spec["components"]["schemas"]
+
+    inconsistentes = []
+    for path, operations in spec["paths"].items():
+        for method, operation in operations.items():
+            for status_code, response in operation.get("responses", {}).items():
+                if not status_code.startswith("2"):
+                    continue
+                schema = response.get("content", {}).get("application/json", {}).get("schema", {})
+                if "$ref" not in schema:
+                    continue
+                expone_auditoria = bool(
+                    _schema_properties(components, schema["$ref"]) & AUDIT_FIELDS
+                )
+                if expone_auditoria != path.endswith("/audit"):
+                    inconsistentes.append(f"{method.upper()} {path}")
+
+    assert inconsistentes == []
+

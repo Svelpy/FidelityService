@@ -319,7 +319,7 @@ async def test_get_by_ci_devuelve_solo_usuario() -> None:
     session = _session()
     session.execute.return_value = result
 
-    response = await UserService.get_by_ci(session, user.ci)
+    response = await UserService.get_by_ci(session, user.ci, Role.ADMIN)
 
     assert response.id == user.id
     statement = session.execute.await_args.args[0]
@@ -804,3 +804,49 @@ async def test_delete_avatar_sin_imagen_es_idempotente() -> None:
     assert updated is user
     commit.assert_not_awaited()
     safe_delete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("actor_role", "fragment"),
+    [
+        (Role.ADMIN, None),
+        (Role.CAJERO, "usuario.role = "),
+        (Role.SOCIO, "usuario.role = "),
+        (Role.CLIENTE, "usuario.id IS NULL"),
+    ],
+)
+async def test_get_by_ci_aplica_visibilidad_por_rol(
+    actor_role: Role,
+    fragment: str | None,
+) -> None:
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = _user(ci="12345678")
+    session = _session()
+    session.execute.return_value = result
+
+    await UserService.get_by_ci(session, "12345678", actor_role)
+
+    statement = session.execute.await_args.args[0]
+    compiled = statement.compile()
+    sql = str(statement.whereclause)
+    if fragment is None:
+        assert "usuario.role" not in sql
+        assert "usuario.id IS NULL" not in sql
+    else:
+        assert fragment in sql
+    if fragment == "usuario.role = ":
+        assert Role.CLIENTE in compiled.params.values()
+
+
+@pytest.mark.asyncio
+async def test_get_by_ci_responde_404_si_el_usuario_no_es_cliente_para_cajero() -> None:
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session = _session()
+    session.execute.return_value = result
+
+    with pytest.raises(AppException) as error:
+        await UserService.get_by_ci(session, "12345678", Role.CAJERO)
+
+    assert error.value.status_code == 404

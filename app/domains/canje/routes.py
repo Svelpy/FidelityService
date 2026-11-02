@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.domains.auth.dependencies import require_permission, require_role
+from app.domains.auth.dependencies import require_permission, require_role, get_current_principal
 from app.domains.auth.schemas import CurrentUser
 from app.domains.canje.schemas import (
     CanjeByCodigoResponse,
@@ -84,10 +84,7 @@ async def list_canjes(
     responses=_error_responses(401, 403, 422, 500),
 )
 async def list_my_canjes(
-    current_user: Annotated[
-        CurrentUser,
-        Depends(require_permission(Module.CANJE, Action.READ)),
-    ],
+    current_user: Annotated[CurrentUser, Depends(get_current_principal)],
     db_session: Annotated[AsyncSession, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,

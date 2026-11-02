@@ -42,15 +42,15 @@ ROLE_PERMISSIONS: dict[Role, dict[Module, set[Action]]] = {
         Module.VALE: SOLO_LECTURA,
     },
     Role.CLIENTE: {
-        Module.CATEGORIA: SOLO_LECTURA,
-        Module.NEGOCIO: SOLO_LECTURA,
-        Module.SUCURSAL: SOLO_LECTURA,
-        Module.USUARIO: SOLO_LECTURA,
-        Module.CANJE: {Action.CREATE, Action.READ},
-        Module.OPERACION: {},
-        Module.CONFIG_PUNTOS: {},
-        Module.MOVIMIENTOS_PUNTOS: SOLO_LECTURA,
-        Module.VALE: SOLO_LECTURA,
+        Module.CANJE: {Action.CREATE},#get me canjes no reguiere Action.READ
+        Module.CATEGORIA: SOLO_LECTURA,#para ver las categorias
+        Module.CONFIG_PUNTOS: {},#no usa
+        Module.MOVIMIENTOS_PUNTOS: {},#get me movimientos puntos no reguiere Action.READ
+        Module.NEGOCIO: SOLO_LECTURA,#Solicitud del frontend para renderizar logos de negocios asociados
+        Module.OPERACION: {},#no usa
+        Module.SUCURSAL: {},#no usa
+        Module.USUARIO: {},#get me usuario no reguiere action.READ
+        Module.VALE: SOLO_LECTURA,#para ver los vales a canjear
     },
     Role.SOCIO: {
         Module.CATEGORIA: {},

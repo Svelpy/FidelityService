@@ -31,36 +31,37 @@ ROLE_PERMISSIONS: dict[Role, dict[Module, set[Action]]] = {
         Module.MOVIMIENTOS_PUNTOS: SOLO_LECTURA,
     },
     Role.CAJERO: {
-        Module.CATEGORIA: SOLO_LECTURA,
-        Module.NEGOCIO: SOLO_LECTURA,
-        Module.SUCURSAL: SOLO_LECTURA,
-        Module.USUARIO: SIN_ELIMINAR,
-        Module.CANJE: {Action.READ, Action.UPDATE},
-        Module.OPERACION: {Action.CREATE, Action.READ},
-        Module.CONFIG_PUNTOS: SOLO_LECTURA,
-        Module.MOVIMIENTOS_PUNTOS: SOLO_LECTURA,
-        Module.VALE: SOLO_LECTURA,
+        Module.CANJE: {Action.READ, Action.UPDATE},#se usa
+        Module.CATEGORIA: SOLO_LECTURA,#se usa en list category,yo lo quitaria
+        Module.CONFIG_PUNTOS: SOLO_LECTURA,#se usa para mostrar la actual
+        Module.MOVIMIENTOS_PUNTOS: SOLO_LECTURA, # para revisar URGENTE
+        Module.NEGOCIO: SOLO_LECTURA,# se usa en los filtros de operacio
+        Module.OPERACION: {Action.CREATE, Action.READ},#se usa
+        Module.SUCURSAL: {},#no se usa
+        Module.USUARIO: SOLO_LECTURA,#se usa en get by ci
+        Module.VALE: SOLO_LECTURA,#se usa en list vale, pero yo lo quitaria
     },
     Role.CLIENTE: {
         Module.CANJE: {Action.CREATE},#get me canjes no reguiere Action.READ
-        Module.CATEGORIA: SOLO_LECTURA,#para ver las categorias
+        Module.CATEGORIA: SOLO_LECTURA,#se usa
         Module.CONFIG_PUNTOS: {},#no usa
         Module.MOVIMIENTOS_PUNTOS: {},#get me movimientos puntos no reguiere Action.READ
         Module.NEGOCIO: SOLO_LECTURA,#Solicitud del frontend para renderizar logos de negocios asociados
         Module.OPERACION: {},#no usa
         Module.SUCURSAL: {},#no usa
         Module.USUARIO: {},#get me usuario no reguiere action.READ
-        Module.VALE: SOLO_LECTURA,#para ver los vales a canjear
+        Module.VALE: SOLO_LECTURA,#se usa
     },
     Role.SOCIO: {
-        Module.CATEGORIA: {},
-        Module.NEGOCIO: SOLO_LECTURA,
-        Module.SUCURSAL: SOLO_LECTURA,
-        Module.USUARIO: SOLO_LECTURA,
         Module.CANJE: {Action.READ, Action.UPDATE},
-        Module.OPERACION: {},
+        #read para listar y get by codigo, patch para redeem
+        Module.CATEGORIA: {},
         Module.CONFIG_PUNTOS: {},
         Module.MOVIMIENTOS_PUNTOS: {},
+        Module.NEGOCIO: {},
+        Module.OPERACION: {},
+        Module.SUCURSAL: {},
+        Module.USUARIO: {},
         Module.VALE: {},
     },
 }

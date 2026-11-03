@@ -74,7 +74,7 @@ ROLE_PERMISSIONS: dict[Role, dict[Module, frozenset[Action]]] = {
         Module.CATEGORIA: frozenset(),
         Module.CONFIG_PUNTOS: frozenset(),
         Module.MOVIMIENTOS_PUNTOS: frozenset(),
-        Module.NEGOCIO: frozenset(),
+        Module.NEGOCIO: frozenset({Action.READ}),
         Module.OPERACION: frozenset(),
         Module.SUCURSAL: frozenset(),
         Module.USUARIO: frozenset(),

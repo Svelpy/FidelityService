@@ -176,10 +176,10 @@ services:
 - En una operación, `emisor_id` y `receptor_id` deben ser diferentes.
 - Todos los factores de conversión deben ser mayores que cero.
 - El código de canje es único.
-- El código de canje contiene exactamente seis dígitos. Debe persistirse
-  como `CHAR(6)` o un tipo textual equivalente, nunca como entero, para
+- El código de canje contiene exactamente ocho dígitos. Debe persistirse
+  como `VARCHAR(8)` o un tipo textual equivalente, nunca como entero, para
   conservar posibles ceros iniciales. PostgreSQL debe aplicar un `CHECK`
-  equivalente a `codigo_canje ~ '^[0-9]{6}$'` además de la restricción
+  equivalente a `codigo_canje ~ '^[0-9]{8}$'` además de la restricción
   `UNIQUE`.
 - Un vale solo puede canjearse en una sucursal perteneciente al mismo negocio
   que el vale.

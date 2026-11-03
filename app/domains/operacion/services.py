@@ -47,12 +47,46 @@ class OperacionService:
                 "constraint_name",
                 None,
             )
-        if constraint_name == "ck_operacion_emisor_receptor_diferentes":
-            return AppException(
+        logger.warning("Operación rechazada por PostgreSQL: regla=%s", constraint_name)
+
+        # Reglas de PostgreSQL que pueden romperse al registrar una compra,
+        # traducidas a: (mensaje, status HTTP, código, details).
+        known_constraints = {
+            "ck_operacion_emisor_receptor_diferentes": (
                 "El emisor y el receptor deben ser usuarios diferentes.",
                 422,
                 ErrorCode.VALIDATION_ERROR,
-            )
+                {"receptor_id": "El cliente no puede ser el mismo usuario que registra la compra."},
+            ),
+            "ck_operacion_total_compra_positivo": (
+                "El total de la compra debe ser mayor que cero.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+                {"total_compra": "El importe debe ser mayor que cero."},
+            ),
+            "ck_operacion_total_puntos_positivo": (
+                "La compra no alcanza el mínimo necesario para acumular puntos.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+                {"total_compra": "El importe genera menos de un punto."},
+            ),
+            "ck_usuario_puntos_no_negativos": (
+                "El saldo de puntos del cliente no puede quedar negativo.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+                {"puntos": "El saldo resultante sería negativo."},
+            ),
+            "uq_movimientos_puntos_operacion_id": (
+                "Los puntos de esta operación ya fueron registrados.",
+                409,
+                ErrorCode.CONFLICT,
+                {"operacion": "La operación ya tiene un movimiento de puntos asociado."},
+            ),
+        }
+        if constraint_name in known_constraints:
+            message, status_code, code, details = known_constraints[constraint_name]
+            return AppException(message, status_code, code, details)
+
         return AppException(
             "Los datos de la operación entran en conflicto con un registro existente.",
             409,

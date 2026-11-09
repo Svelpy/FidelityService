@@ -97,7 +97,6 @@ def test_list_administrativo_delega_filtros_y_paginacion(
         session,
         principal.id,
         principal.role,
-        principal.sucursal_id,
         page=1,
         per_page=20,
         user_id=user_id,
@@ -138,7 +137,6 @@ def test_get_by_id_delega_identidad_del_actor(
         movement.id,
         principal.id,
         principal.role,
-        principal.sucursal_id,
     )
 
 

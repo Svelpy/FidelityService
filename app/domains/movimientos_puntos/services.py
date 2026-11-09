@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -34,65 +34,43 @@ class MovimientoPuntosService:
     _ROLES_WITH_GLOBAL_VISIBILITY = frozenset(
         {Role.SUPERADMIN, Role.OWNER, Role.ADMIN}
     )
-    _BUSINESS_SCOPED_ROLES = frozenset({Role.CAJERO})
+    _ACTOR_SCOPED_ROLES = frozenset({Role.CAJERO})
 
     @classmethod
     def _visibility_filters(
         cls,
         actor_id: UUID,
         actor_role: Role,
-        actor_sucursal_id: UUID | None,
     ) -> list[object]:
         """Filas de movimientos que el actor puede ver.
 
         - Roles globales: todos los movimientos.
-        - Cliente: solo sus propios movimientos.
-        - Roles acotados al negocio: movimientos originados por operaciones o
-          canjes del negocio de su sucursal (incluye los AJUSTE cuyo
-          movimiento de origen es un canje de ese negocio).
-        - Cualquier otro rol: ninguno.
+        - Cajero: solo los movimientos producidos por una acción suya:
+          ACUMULA de operaciones que emitió, CANJE de canjes que entregó
+          (dador) y AJUSTE de canjes que canceló (created_by del ajuste).
+        - Cualquier otro rol: ninguno. El cliente consulta los suyos mediante
+          list_me (GET /movimientos-puntos/me), que no utiliza este filtro.
         """
         if actor_role in cls._ROLES_WITH_GLOBAL_VISIBILITY:
             return []
-        if actor_role is Role.CLIENTE:
-            return [MovimientoPuntos.usuario_id == actor_id]
-        if actor_role in cls._BUSINESS_SCOPED_ROLES:
+        if actor_role in cls._ACTOR_SCOPED_ROLES:
             # Alias propios: get_detail y list ya unen estas tablas en la
             # consulta exterior y no deben correlacionarse con ella.
-            actor_branch = aliased(Sucursal)
-            operation_branch = aliased(Sucursal)
-            scoped_operation = aliased(Operacion)
-            scoped_redemption = aliased(Canje)
-            scoped_voucher = aliased(Vale)
-            origin_movement = aliased(MovimientoPuntos)
-
-            actor_business_id = (
-                select(actor_branch.negocio_id)
-                .where(actor_branch.id == actor_sucursal_id)
-                .scalar_subquery()
+            own_operation = aliased(Operacion)
+            own_redemption = aliased(Canje)
+            emitted_operations = select(own_operation.id).where(
+                own_operation.emisor_id == actor_id
             )
-            business_operations = (
-                select(scoped_operation.id)
-                .join(
-                    operation_branch,
-                    operation_branch.id == scoped_operation.sucursal_id,
-                )
-                .where(operation_branch.negocio_id == actor_business_id)
-            )
-            business_redemptions = (
-                select(scoped_redemption.id)
-                .join(scoped_voucher, scoped_voucher.id == scoped_redemption.vale_id)
-                .where(scoped_voucher.negocio_id == actor_business_id)
-            )
-            business_adjustment_origins = select(origin_movement.id).where(
-                origin_movement.canje_id.in_(business_redemptions)
+            delivered_redemptions = select(own_redemption.id).where(
+                own_redemption.dador_id == actor_id
             )
             return [
                 or_(
-                    MovimientoPuntos.operacion_id.in_(business_operations),
-                    MovimientoPuntos.canje_id.in_(business_redemptions),
-                    MovimientoPuntos.movimiento_origen_id.in_(
-                        business_adjustment_origins
+                    MovimientoPuntos.operacion_id.in_(emitted_operations),
+                    MovimientoPuntos.canje_id.in_(delivered_redemptions),
+                    and_(
+                        MovimientoPuntos.tipo_movimiento == TipoMovimiento.AJUSTE,
+                        MovimientoPuntos.created_by == actor_id,
                     ),
                 )
             ]
@@ -141,7 +119,6 @@ class MovimientoPuntosService:
         movement_id: UUID,
         actor_id: UUID,
         actor_role: Role,
-        actor_sucursal_id: UUID | None,
     ) -> MovimientoPuntosDetailResponse:
         origin_movement = aliased(MovimientoPuntos)
         redemption_id = func.coalesce(
@@ -153,7 +130,7 @@ class MovimientoPuntosService:
         filters = [
             MovimientoPuntos.id == movement_id,
             MovimientoPuntos.is_deleted.is_(False),
-            *cls._visibility_filters(actor_id, actor_role, actor_sucursal_id),
+            *cls._visibility_filters(actor_id, actor_role),
         ]
 
         statement = (
@@ -264,7 +241,6 @@ class MovimientoPuntosService:
         db_session: AsyncSession,
         actor_id: UUID,
         actor_role: Role,
-        actor_sucursal_id: UUID | None,
         *,
         page: int = 1,
         per_page: int = 20,
@@ -280,7 +256,7 @@ class MovimientoPuntosService:
 
         filters = [
             MovimientoPuntos.is_deleted.is_(False),
-            *cls._visibility_filters(actor_id, actor_role, actor_sucursal_id),
+            *cls._visibility_filters(actor_id, actor_role),
         ]
         if user_id is not None:
             filters.append(MovimientoPuntos.usuario_id == user_id)

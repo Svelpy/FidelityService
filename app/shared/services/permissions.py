@@ -51,7 +51,7 @@ ROLE_PERMISSIONS: dict[Role, dict[Module, frozenset[Action]]] = {
         Module.CANJE: frozenset({Action.READ, Action.UPDATE}),  # se usa
         Module.CATEGORIA: frozenset({Action.READ}),  # se usa en list category, yo lo quitaria
         Module.CONFIG_PUNTOS: frozenset({Action.READ}),  # se usa para mostrar la actual
-        Module.MOVIMIENTOS_PUNTOS: frozenset({Action.READ}),  # para revisar URGENTE
+        Module.MOVIMIENTOS_PUNTOS: frozenset({Action.READ}),  # solo movimientos de sus propias acciones
         Module.NEGOCIO: frozenset({Action.READ}),  # se usa en los filtros de operacion
         Module.OPERACION: frozenset({Action.CREATE, Action.READ}),  # se usa
         Module.SUCURSAL: frozenset(),  # no se usa

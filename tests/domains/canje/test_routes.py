@@ -460,7 +460,7 @@ def test_redeem_delega_canje_id_y_sucursal(
 
 @pytest.mark.parametrize(
     "role",
-    [Role.SUPERADMIN, Role.OWNER, Role.ADMIN, Role.CAJERO],
+    [Role.SUPERADMIN, Role.OWNER, Role.ADMIN],
 )
 def test_expire_permite_roles_autorizados_y_delega_actor(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
@@ -480,7 +480,7 @@ def test_expire_permite_roles_autorizados_y_delega_actor(
     service.assert_awaited_once_with(session, actor_id=principal.id)
 
 
-@pytest.mark.parametrize("role", [Role.CLIENTE, Role.SOCIO])
+@pytest.mark.parametrize("role", [Role.CAJERO, Role.CLIENTE, Role.SOCIO])
 def test_expire_rechaza_roles_no_autorizados(
     route_context: tuple[TestClient, CurrentUser, MagicMock],
     role: Role,

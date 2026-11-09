@@ -80,7 +80,6 @@ async def list_movimientos_puntos(
         db_session,
         current_user.id,
         current_user.role,
-        current_user.sucursal_id,
         page=page,
         per_page=per_page,
         user_id=usuario_id,
@@ -107,7 +106,6 @@ async def get_movimiento_puntos(
         movimiento_id,
         current_user.id,
         current_user.role,
-        current_user.sucursal_id,
     )
 
 

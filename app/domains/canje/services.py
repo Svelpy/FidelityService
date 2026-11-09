@@ -119,11 +119,22 @@ class CanjeService:
         actor_id: UUID,
         actor_role: Role,
         actor_sucursal_id: UUID | None,
+        *,
+        include_redeemed_by_others: bool = False,
     ) -> list[object]:
+        """Canjes que el actor puede ver.
+
+        - Roles globales: todos los canjes.
+        - Cajero y socio: canjes de vales del negocio de su sucursal en estado
+          PENDIENTE, EXPIRADO o CANCELADO (no tienen dador), y los CANJEADO
+          solo si él mismo los entregó. Con include_redeemed_by_others ve
+          también los CANJEADO por otros usuarios de su negocio; lo usa la
+          búsqueda por código, que requiere conocer el código del cliente.
+        - Cualquier otro rol: ninguno. El cliente consulta los suyos mediante
+          list_for_user (GET /canjes/me), que no utiliza este filtro.
+        """
         if actor_role in cls._ROLES_WITH_GLOBAL_VISIBILITY:
             return []
-        if actor_role is Role.CLIENTE:
-            return [Canje.cliente_id == actor_id]
         if actor_role in cls._BUSINESS_SCOPED_ROLES:
             # Alias propio: las consultas ya unen la sucursal donde se canjeó.
             actor_branch = aliased(Sucursal)
@@ -132,7 +143,15 @@ class CanjeService:
                 .where(actor_branch.id == actor_sucursal_id)
                 .scalar_subquery()
             )
-            return [Vale.negocio_id == actor_business_id]
+            filters: list[object] = [Vale.negocio_id == actor_business_id]
+            if not include_redeemed_by_others:
+                filters.append(
+                    or_(
+                        Canje.status != EstadoCanje.CANJEADO,
+                        Canje.dador_id == actor_id,
+                    )
+                )
+            return filters
         return [Canje.id.is_(None)]
 
     @staticmethod
@@ -272,6 +291,7 @@ class CanjeService:
                     actor_id,
                     actor_role,
                     actor_sucursal_id,
+                    include_redeemed_by_others=True,
                 ),
             )
         )

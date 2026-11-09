@@ -141,7 +141,6 @@ async def expire_canjes(
                 Role.SUPERADMIN,
                 Role.OWNER,
                 Role.ADMIN,
-                Role.CAJERO,
             )
         ),
     ],

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from app.domains.canje.models import Canje
 from app.domains.movimientos_puntos.models import MovimientoPuntos
@@ -80,7 +81,6 @@ async def test_get_detail_devuelve_relaciones_en_una_consulta() -> None:
         movement.id,
         uuid4(),
         Role.ADMIN,
-        None,
     )
 
     assert detail.data.id == movement.id
@@ -97,7 +97,7 @@ async def test_get_detail_devuelve_relaciones_en_una_consulta() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_detail_oculta_movimiento_ajeno_al_cliente() -> None:
+async def test_get_detail_oculta_movimiento_ajeno_al_cajero() -> None:
     result = MagicMock()
     result.one_or_none.return_value = None
     session = _async_session()
@@ -109,8 +109,7 @@ async def test_get_detail_oculta_movimiento_ajeno_al_cliente() -> None:
             session,
             uuid4(),
             actor_id,
-            Role.CLIENTE,
-            None,
+            Role.CAJERO,
         )
 
     assert error.value.status_code == 404
@@ -266,7 +265,6 @@ async def test_list_administrativo_devuelve_relaciones_y_aplica_filtros() -> Non
         session,
         uuid4(),
         Role.ADMIN,
-        None,
         page=1,
         per_page=20,
         user_id=client.id,
@@ -338,7 +336,7 @@ async def test_list_me_devuelve_movimiento_con_canje_y_vale() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_limita_cliente_a_sus_movimientos() -> None:
+async def test_list_cliente_no_ve_movimientos_fuera_de_me() -> None:
     session = _async_session()
     total_result = MagicMock()
     total_result.scalar_one.return_value = 0
@@ -347,76 +345,67 @@ async def test_list_limita_cliente_a_sus_movimientos() -> None:
     session.execute.side_effect = [total_result, rows_result]
     actor_id = uuid4()
 
-    await MovimientoPuntosService.list(session, actor_id, Role.CLIENTE, None)
+    await MovimientoPuntosService.list(session, actor_id, Role.CLIENTE)
 
     for call in session.execute.await_args_list:
-        assert actor_id in call.args[0].compile().params.values()
+        sql = str(call.args[0].compile())
+        assert "movimientos_puntos.id IS NULL" in sql
+        assert actor_id not in call.args[0].compile().params.values()
 
 
 @pytest.mark.parametrize("role", [Role.SUPERADMIN, Role.OWNER, Role.ADMIN])
 def test_visibility_filters_roles_globales_ven_todo(role: Role) -> None:
-    assert MovimientoPuntosService._visibility_filters(uuid4(), role, uuid4()) == []
+    assert MovimientoPuntosService._visibility_filters(uuid4(), role) == []
 
 
-def test_visibility_filters_cliente_ve_solo_sus_movimientos() -> None:
+def test_visibility_filters_cajero_ve_solo_movimientos_de_sus_acciones() -> None:
     actor_id = uuid4()
 
-    (condition,) = MovimientoPuntosService._visibility_filters(
-        actor_id,
-        Role.CLIENTE,
-        None,
-    )
+    (condition,) = MovimientoPuntosService._visibility_filters(actor_id, Role.CAJERO)
 
-    compiled = condition.compile()
-    assert "movimientos_puntos.usuario_id" in str(compiled)
-    assert actor_id in compiled.params.values()
-
-
-def test_visibility_filters_cajero_ve_solo_el_negocio_de_su_sucursal() -> None:
-    actor_sucursal_id = uuid4()
-
-    (condition,) = MovimientoPuntosService._visibility_filters(
-        uuid4(),
-        Role.CAJERO,
-        actor_sucursal_id,
-    )
-
-    compiled = condition.compile()
+    compiled = condition.compile(dialect=postgresql.dialect())
     sql = str(compiled)
-    assert actor_sucursal_id in compiled.params.values()
+    # ACUMULA de operaciones que emitió.
     assert "movimientos_puntos.operacion_id IN" in sql
+    assert "emisor_id = " in sql
+    # CANJE de canjes que entregó.
     assert "movimientos_puntos.canje_id IN" in sql
-    assert "movimientos_puntos.movimiento_origen_id IN" in sql
-    assert "negocio_id" in sql
+    assert "dador_id = " in sql
+    # AJUSTE de canjes que canceló.
+    assert "movimientos_puntos.tipo_movimiento = " in sql
+    assert "movimientos_puntos.created_by = " in sql
+    # Ya no depende del negocio ni de la sucursal.
+    assert "negocio_id" not in sql
+    assert "sucursal" not in sql
+    params = list(compiled.params.values())
+    assert params.count(actor_id) == 3
+    assert TipoMovimiento.AJUSTE in params
 
 
-def test_visibility_filters_deniega_roles_no_contemplados() -> None:
-    (condition,) = MovimientoPuntosService._visibility_filters(
-        uuid4(),
-        Role.SOCIO,
-        uuid4(),
-    )
+@pytest.mark.parametrize("role", [Role.SOCIO, Role.CLIENTE])
+def test_visibility_filters_deniega_roles_no_contemplados(role: Role) -> None:
+    (condition,) = MovimientoPuntosService._visibility_filters(uuid4(), role)
 
     assert str(condition.compile()).endswith("movimientos_puntos.id IS NULL")
 
 
 @pytest.mark.asyncio
-async def test_get_detail_cajero_aplica_alcance_de_negocio() -> None:
+async def test_get_detail_cajero_aplica_alcance_de_sus_acciones() -> None:
     result = MagicMock()
     result.one_or_none.return_value = None
     session = _async_session()
     session.execute.return_value = result
-    actor_sucursal_id = uuid4()
+    actor_id = uuid4()
 
     with pytest.raises(AppException) as error:
         await MovimientoPuntosService.get_detail(
             session,
             uuid4(),
-            uuid4(),
+            actor_id,
             Role.CAJERO,
-            actor_sucursal_id,
         )
 
     assert error.value.status_code == 404
     compiled = session.execute.await_args.args[0].compile()
-    assert actor_sucursal_id in compiled.params.values()
+    assert actor_id in compiled.params.values()
+    assert "dador_id" in str(compiled)

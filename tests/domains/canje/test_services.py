@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from app.domains.canje.models import Canje
 from app.domains.canje.schemas import CanjeCreate
@@ -369,12 +370,14 @@ async def test_get_by_codigo_devuelve_canje_visible_con_relaciones() -> None:
     session = _session()
     session.execute.return_value = result
 
+    actor_sucursal_id = uuid4()
+
     item = await CanjeService.get_by_codigo(
         session,
         redemption.codigo_canje,
-        redemption.cliente_id,
-        Role.CLIENTE,
-        None,
+        uuid4(),
+        Role.SOCIO,
+        actor_sucursal_id,
     )
 
     assert item.canje.id == redemption.id
@@ -384,7 +387,7 @@ async def test_get_by_codigo_devuelve_canje_visible_con_relaciones() -> None:
     statement = session.execute.await_args.args[0]
     parameters = statement.compile().params.values()
     assert redemption.codigo_canje in parameters
-    assert redemption.cliente_id in parameters
+    assert actor_sucursal_id in parameters
 
 
 @pytest.mark.asyncio
@@ -1007,3 +1010,75 @@ def test_integrity_exception_traduce_estado_final_inmutable() -> None:
 
     assert error.status_code == 409
     assert error.code == ErrorCode.CONFLICT
+
+
+def _compiled_visibility(role: Role) -> str:
+    return " AND ".join(
+        str(condition.compile(dialect=postgresql.dialect()))
+        for condition in CanjeService._visibility_filters(uuid4(), role, uuid4())
+    )
+
+
+@pytest.mark.parametrize("role", [Role.SUPERADMIN, Role.OWNER, Role.ADMIN])
+def test_visibilidad_roles_globales_ven_todos(role: Role) -> None:
+    assert CanjeService._visibility_filters(uuid4(), role, None) == []
+
+
+@pytest.mark.parametrize("role", [Role.CAJERO, Role.SOCIO])
+def test_visibilidad_cajero_y_socio_canjeados_solo_propios(role: Role) -> None:
+    actor_id = uuid4()
+    filters = CanjeService._visibility_filters(actor_id, role, uuid4())
+    compiled = [
+        condition.compile(dialect=postgresql.dialect()) for condition in filters
+    ]
+    sql = " AND ".join(str(c) for c in compiled)
+
+    assert "vale.negocio_id = " in sql
+    assert "canje.status != " in sql
+    assert "canje.dador_id = " in sql
+    assert actor_id in [v for c in compiled for v in c.params.values()]
+    assert "cliente_id" not in sql
+
+
+@pytest.mark.parametrize("role", [Role.CAJERO, Role.SOCIO])
+def test_visibilidad_por_codigo_incluye_canjeados_del_negocio(role: Role) -> None:
+    filters = CanjeService._visibility_filters(
+        uuid4(),
+        role,
+        uuid4(),
+        include_redeemed_by_others=True,
+    )
+    sql = " AND ".join(
+        str(condition.compile(dialect=postgresql.dialect())) for condition in filters
+    )
+
+    assert "vale.negocio_id = " in sql
+    assert "dador_id" not in sql
+    assert "status" not in sql
+
+
+@pytest.mark.asyncio
+async def test_get_by_codigo_usa_alcance_de_todo_el_negocio() -> None:
+    result = MagicMock()
+    result.one_or_none.return_value = None
+    session = _session()
+    session.execute.return_value = result
+
+    with pytest.raises(AppException):
+        await CanjeService.get_by_codigo(
+            session,
+            "00123456",
+            uuid4(),
+            Role.CAJERO,
+            uuid4(),
+        )
+
+    sql = str(
+        session.execute.await_args.args[0].compile(dialect=postgresql.dialect())
+    )
+    assert "vale.negocio_id = " in sql
+    assert "dador_id =" not in sql
+
+
+def test_visibilidad_cliente_no_ve_canjes_fuera_de_me() -> None:
+    assert _compiled_visibility(Role.CLIENTE) == "public.canje.id IS NULL"

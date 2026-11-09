@@ -74,6 +74,12 @@ class CanjeService:
                 422,
                 ErrorCode.VALIDATION_ERROR,
             )
+        if constraint_name == "ck_canje_estado_final_inmutable":
+            return AppException(
+                "El canje ya no se encuentra pendiente y no puede modificarse.",
+                409,
+                ErrorCode.CONFLICT,
+            )
         return AppException(
             "Los datos del canje entran en conflicto con un registro existente.",
             409,

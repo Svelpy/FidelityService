@@ -26,6 +26,7 @@ from app.shared.enums import (
     TipoMovimiento,
     TipoNegocio,
 )
+from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 
 
@@ -992,3 +993,17 @@ async def test_get_detail_records_solo_incluye_eliminados_si_se_pide(
 
     statement = session.execute.await_args.args[0]
     assert ("canje.is_deleted" in str(statement.whereclause)) is filtra_eliminados
+
+
+def test_integrity_exception_traduce_estado_final_inmutable() -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    original_error = MagicMock()
+    original_error.constraint_name = "ck_canje_estado_final_inmutable"
+
+    error = CanjeService._integrity_exception(
+        IntegrityError(None, None, original_error)
+    )
+
+    assert error.status_code == 409
+    assert error.code == ErrorCode.CONFLICT

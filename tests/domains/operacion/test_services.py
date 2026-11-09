@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from app.domains.config_puntos.models import ConfigPuntos
 from app.domains.config_puntos.services import ConfigPuntosService
@@ -423,3 +424,28 @@ async def test_get_audit_incluye_operaciones_eliminadas() -> None:
     assert audit is operation
     statement = session.execute.await_args.args[0]
     assert "operacion.is_deleted" not in str(statement.whereclause)
+
+
+def _compiled(filters: list[object]) -> str:
+    return " AND ".join(
+        str(condition.compile(dialect=postgresql.dialect())) for condition in filters
+    )
+
+
+@pytest.mark.parametrize("role", [Role.SUPERADMIN, Role.OWNER, Role.ADMIN])
+def test_visibilidad_roles_globales_ven_todas(role: Role) -> None:
+    assert OperacionService._visibility_filters(uuid4(), role) == []
+
+
+def test_visibilidad_cajero_solo_ve_las_que_emitio() -> None:
+    sql = _compiled(OperacionService._visibility_filters(uuid4(), Role.CAJERO))
+
+    assert "operacion.emisor_id = " in sql
+    assert "receptor_id" not in sql
+
+
+@pytest.mark.parametrize("role", [Role.SOCIO, Role.CLIENTE])
+def test_visibilidad_roles_no_previstos_no_ven_nada(role: Role) -> None:
+    sql = _compiled(OperacionService._visibility_filters(uuid4(), role))
+
+    assert sql == "public.operacion.id IS NULL"

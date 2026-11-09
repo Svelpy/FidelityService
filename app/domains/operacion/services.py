@@ -141,11 +141,17 @@ class OperacionService:
         actor_id: UUID,
         actor_role: Role,
     ) -> list[object]:
+        """Operaciones que el actor puede ver.
+
+        - Roles globales: todas las operaciones.
+        - Cajero: solo las operaciones que él mismo emitió.
+        - Cualquier otro rol: ninguna.
+        """
         if actor_role in cls._ROLES_WITH_GLOBAL_OPERATION_VISIBILITY:
             return []
-        if actor_role is Role.CLIENTE:
-            return [Operacion.receptor_id == actor_id]
-        return [Operacion.emisor_id == actor_id]
+        if actor_role is Role.CAJERO:
+            return [Operacion.emisor_id == actor_id]
+        return [Operacion.id.is_(None)]
 
     @classmethod
     async def get(

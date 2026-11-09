@@ -29,3 +29,6 @@ slowapi==0.1.10
 # ===== Procesamiento de Imágenes =====
 Pillow==13.0.0
 resend[async]==2.50.0
+
+# ===== Reportes (Excel) =====
+openpyxl==3.1.5

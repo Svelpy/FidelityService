@@ -65,3 +65,8 @@ class NivelCliente(str, Enum):
     DIAMANTE = "DIAMANTE"
 
     
+
+
+class TipoReportePuntos(str, Enum):
+    ASIGNADOS = "ASIGNADOS"
+    CANJEADOS = "CANJEADOS"

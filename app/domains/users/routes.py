@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Path, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Path, Query, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -21,9 +21,11 @@ from app.domains.users.schemas import (
     UserResponse,
     UserResponseAudit,
     UserSelfUpdate,
+    UserSucursalChange,
     UserUpdate,
 )
 from app.domains.users.services import UserService
+from app.middlewares.limiter import limiter
 from app.shared.enums import Action, Module, Role
 from app.shared.schemas.errors import ErrorResponse
 from app.shared.schemas.pagination import PaginatedResponse
@@ -38,6 +40,7 @@ ERROR_RESPONSES = {
     404: {"model": ErrorResponse},
     409: {"model": ErrorResponse},
     422: {"model": ErrorResponse},
+    429: {"model": ErrorResponse},
     500: {"model": ErrorResponse},
 }
 
@@ -111,6 +114,34 @@ async def delete_my_avatar(
     return await UserService.delete_avatar(
         db_session,
         current_user.id,
+        actor_id=current_user.id,
+    )
+
+
+@router.patch(
+    "/me/sucursal",
+    response_model=UserMeResponse,
+    summary="Cambiar mi sucursal",
+    description=(
+        "Permite a un usuario ADMIN o CAJERO cambiar su propia sucursal. "
+        "La sucursal destino debe pertenecer al negocio de tipo MAIN."
+    ),
+    responses=_error_responses(401, 403, 404, 422, 429, 500),
+)
+@limiter.limit("5/minute")
+async def change_my_sucursal(
+    request: Request,
+    data: UserSucursalChange,
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_role(Role.ADMIN, Role.CAJERO)),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> UserMeResponse:
+    return await UserService.change_sucursal(
+        db_session,
+        current_user.id,
+        data,
         actor_id=current_user.id,
     )
 

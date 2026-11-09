@@ -417,3 +417,25 @@ class PasswordSelfUpdate(AdminResetPassword):
             }
         },
     )
+
+
+class UserSucursalChange(BaseModel):
+    """Schema para que un usuario del negocio MAIN cambie su propia sucursal."""
+
+    sucursal_id: UUID = Field(...)
+
+    @field_validator("sucursal_id", mode="before")
+    @classmethod
+    def validate_sucursal_id(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("La sucursal no puede ser null.")
+        return value
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "sucursal_id": "22222222-2222-4222-8222-222222222222",
+            }
+        },
+    )

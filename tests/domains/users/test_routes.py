@@ -404,3 +404,68 @@ def test_list_users_valida_paginacion(
     assert client.get("/users/?page=0").status_code == 422
     assert client.get("/users/?role=INVALIDO").status_code == 422
     assert client.get("/users/?sucursal_id=invalido").status_code == 422
+
+
+@pytest.mark.parametrize("actor_role", [Role.ADMIN, Role.CAJERO])
+def test_change_my_sucursal_delega_service(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
+) -> None:
+    client, current_user, db_session, _ = route_context
+    current_user.role = actor_role
+    sucursal_id = uuid4()
+    user = _user(id=current_user.id, role=actor_role, sucursal_id=sucursal_id)
+    result = UserMeResponse(user=user, sucursal=None, negocio=None)
+
+    with patch.object(
+        UserService,
+        "change_sucursal",
+        new=AsyncMock(return_value=result),
+    ) as service:
+        response = client.patch(
+            "/users/me/sucursal",
+            json={"sucursal_id": str(sucursal_id)},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["user"]["sucursal_id"] == str(sucursal_id)
+    args = service.await_args
+    assert args.args[:2] == (db_session, current_user.id)
+    assert args.args[2].sucursal_id == sucursal_id
+    assert args.kwargs == {"actor_id": current_user.id}
+
+
+@pytest.mark.parametrize(
+    "actor_role",
+    [Role.SUPERADMIN, Role.OWNER, Role.SOCIO, Role.CLIENTE],
+)
+def test_change_my_sucursal_rechaza_roles_no_main(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
+) -> None:
+    client, current_user, _, _ = route_context
+    current_user.role = actor_role
+
+    with patch.object(UserService, "change_sucursal", new=AsyncMock()) as service:
+        response = client.patch(
+            "/users/me/sucursal",
+            json={"sucursal_id": str(uuid4())},
+        )
+
+    assert response.status_code == 403
+    service.assert_not_awaited()
+
+
+@pytest.mark.parametrize("payload", [{}, {"sucursal_id": None}, {"sucursal_id": "x"}])
+def test_change_my_sucursal_valida_payload(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    payload: dict[str, object],
+) -> None:
+    client, current_user, _, _ = route_context
+    current_user.role = Role.CAJERO
+
+    with patch.object(UserService, "change_sucursal", new=AsyncMock()) as service:
+        response = client.patch("/users/me/sucursal", json=payload)
+
+    assert response.status_code == 422
+    service.assert_not_awaited()

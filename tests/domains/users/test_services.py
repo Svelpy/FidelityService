@@ -16,6 +16,7 @@ from app.domains.users.schemas import (
     UserCreate,
     UserRegistrationData,
     UserSelfUpdate,
+    UserSucursalChange,
     UserUpdate,
 )
 from app.domains.users.services import UserService
@@ -850,3 +851,86 @@ async def test_get_by_ci_responde_404_si_el_usuario_no_es_cliente_para_cajero() 
         await UserService.get_by_ci(session, "12345678", Role.CAJERO)
 
     assert error.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_change_sucursal_asigna_sucursal_main_y_auditoria() -> None:
+    session = _session()
+    actor_id = uuid4()
+    previous_sucursal_id = uuid4()
+    new_sucursal_id = uuid4()
+    user = _user(role=Role.CAJERO, sucursal_id=previous_sucursal_id)
+    main_result = MagicMock()
+    main_result.scalar_one_or_none.return_value = new_sucursal_id
+    session.execute.return_value = main_result
+    me = MagicMock()
+
+    with (
+        patch.object(UserService, "get", new=AsyncMock(return_value=user)) as get,
+        patch.object(UserService, "get_me", new=AsyncMock(return_value=me)) as get_me,
+    ):
+        result = await UserService.change_sucursal(
+            session,
+            user.id,
+            UserSucursalChange(sucursal_id=new_sucursal_id),
+            actor_id=actor_id,
+        )
+
+    assert result is me
+    get.assert_awaited_once_with(session, user.id, for_update=True)
+    get_me.assert_awaited_once_with(session, user.id)
+    assert user.sucursal_id == new_sucursal_id
+    assert user.updated_by == actor_id
+    assert user.updated_at is not None
+    session.commit.assert_awaited_once()
+    statement = str(session.execute.await_args.args[0])
+    assert "negocio" in statement
+    assert "tipo" in statement
+
+
+@pytest.mark.asyncio
+async def test_change_sucursal_rechaza_sucursal_fuera_de_main() -> None:
+    session = _session()
+    user = _user(role=Role.ADMIN, sucursal_id=uuid4())
+    original_sucursal_id = user.sucursal_id
+    empty_result = MagicMock()
+    empty_result.scalar_one_or_none.return_value = None
+    session.execute.return_value = empty_result
+
+    with patch.object(UserService, "get", new=AsyncMock(return_value=user)):
+        with pytest.raises(AppException) as error:
+            await UserService.change_sucursal(
+                session,
+                user.id,
+                UserSucursalChange(sucursal_id=uuid4()),
+                actor_id=user.id,
+            )
+
+    assert error.value.status_code == 422
+    assert "sucursal_id" in error.value.details
+    assert user.sucursal_id == original_sucursal_id
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_change_sucursal_misma_sucursal_no_escribe() -> None:
+    session = _session()
+    sucursal_id = uuid4()
+    user = _user(role=Role.CAJERO, sucursal_id=sucursal_id)
+    me = MagicMock()
+
+    with (
+        patch.object(UserService, "get", new=AsyncMock(return_value=user)),
+        patch.object(UserService, "get_me", new=AsyncMock(return_value=me)),
+    ):
+        result = await UserService.change_sucursal(
+            session,
+            user.id,
+            UserSucursalChange(sucursal_id=sucursal_id),
+            actor_id=user.id,
+        )
+
+    assert result is me
+    session.execute.assert_not_awaited()
+    session.commit.assert_not_awaited()
+    assert user.updated_by is None

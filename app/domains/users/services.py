@@ -24,10 +24,11 @@ from app.domains.users.schemas import (
     UserRegistrationData,
     UserResponse,
     UserSelfUpdate,
+    UserSucursalChange,
     UserUpdate,
 )
 from app.integrations.cloudinary import CloudinaryService
-from app.shared.enums import Role
+from app.shared.enums import Role, TipoNegocio
 from app.shared.errors.codes import ErrorCode
 from app.shared.errors.exceptions import AppException
 from app.shared.schemas.pagination import PaginatedResponse
@@ -611,6 +612,59 @@ class UserService:
 
         logger.info("Usuario actualizado: user_id=%s actor_id=%s", user.id, actor_id)
         return user
+
+    @staticmethod
+    async def _validate_sucursal_main(
+        db_session: AsyncSession,
+        sucursal_id: UUID,
+    ) -> None:
+        result = await db_session.execute(
+            select(Sucursal.id)
+            .join(Negocio, Negocio.id == Sucursal.negocio_id)
+            .where(
+                Sucursal.id == sucursal_id,
+                Sucursal.is_deleted.is_(False),
+                Negocio.is_deleted.is_(False),
+                Negocio.tipo == TipoNegocio.MAIN,
+            )
+        )
+        if result.scalar_one_or_none() is None:
+            raise AppException(
+                "La sucursal indicada no existe o no pertenece al negocio MAIN.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+                {"sucursal_id": "La sucursal debe pertenecer al negocio de tipo MAIN."},
+            )
+
+    @classmethod
+    async def change_sucursal(
+        cls,
+        db_session: AsyncSession,
+        user_id: UUID,
+        data: UserSucursalChange,
+        actor_id: UUID,
+    ) -> UserMeResponse:
+        user = await cls.get(db_session, user_id, for_update=True)
+        previous_sucursal_id = user.sucursal_id
+
+        if previous_sucursal_id == data.sucursal_id:
+            await db_session.rollback()
+            return await cls.get_me(db_session, user_id)
+
+        await cls._validate_sucursal_main(db_session, data.sucursal_id)
+
+        user.sucursal_id = data.sucursal_id
+        user.updated_at = datetime.now(timezone.utc)
+        user.updated_by = actor_id
+        await cls._commit(db_session, user)
+
+        logger.info(
+            "Sucursal de usuario cambiada: user_id=%s sucursal_anterior=%s sucursal_nueva=%s",
+            user.id,
+            previous_sucursal_id,
+            data.sucursal_id,
+        )
+        return await cls.get_me(db_session, user_id)
 
     @classmethod
     async def delete(

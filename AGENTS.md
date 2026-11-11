@@ -206,7 +206,8 @@ services:
   - `ACUMULA`: `operacion_id` obligatorio y `canje_id` nulo.
   - `CANJE`: `canje_id` obligatorio y `operacion_id` nulo.
   - `AJUSTE`: `operacion_id` y `canje_id` nulos.
-  - `EXPIRA`: `operacion_id` y `canje_id` nulos.
+  - `REVERSA`: `movimiento_origen_id` obligatorio (el `ACUMULA` revertido),
+    `operacion_id` y `canje_id` nulos. Se registra al anular una operación.
   Estas combinaciones deben garantizarse con un `CHECK` de PostgreSQL.
 - En configuraciones con rango temporal, `end_date` puede ser nulo; cuando
   exista, debe ser posterior a `start_date` mediante un `CHECK`.
@@ -216,7 +217,7 @@ Los enums persistentes del dominio son:
 ```text
 tipo_negocio    = MAIN | SOCIO
 estado_canje    = PENDIENTE | CANJEADO | EXPIRADO | CANCELADO
-tipo_movimiento = ACUMULA | CANJE | AJUSTE | EXPIRA
+tipo_movimiento = ACUMULA | CANJE | AJUSTE | REVERSA
 ```
 
 Sus valores deben definirse también como enums Python compartidos en

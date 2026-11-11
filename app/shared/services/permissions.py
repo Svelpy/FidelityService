@@ -31,7 +31,7 @@ ROLE_PERMISSIONS: dict[Role, dict[Module, frozenset[Action]]] = {
         Module.CONFIG_PUNTOS: frozenset({Action.CREATE, Action.READ}),  # no existe delete ni update
         Module.MOVIMIENTOS_PUNTOS: frozenset({Action.READ}),  # no existe create, update, delete
         Module.NEGOCIO: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
-        Module.OPERACION: frozenset({Action.READ}),  # no existe delete ni update
+        Module.OPERACION: frozenset({Action.READ, Action.UPDATE}),  # update = anular; no existe delete
         Module.SUCURSAL: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
         Module.USUARIO: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
         Module.VALE: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
@@ -42,7 +42,7 @@ ROLE_PERMISSIONS: dict[Role, dict[Module, frozenset[Action]]] = {
         Module.CONFIG_PUNTOS: frozenset({Action.CREATE, Action.READ}),  # no existe delete ni update
         Module.MOVIMIENTOS_PUNTOS: frozenset({Action.READ}),  # no existe create, update, delete
         Module.NEGOCIO: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
-        Module.OPERACION: frozenset({Action.CREATE, Action.READ}),  # no existe delete ni update
+        Module.OPERACION: frozenset({Action.CREATE, Action.READ, Action.UPDATE}),  # update = anular; no existe delete
         Module.SUCURSAL: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
         Module.USUARIO: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),
         Module.VALE: frozenset({Action.CREATE, Action.READ, Action.UPDATE, Action.DELETE}),

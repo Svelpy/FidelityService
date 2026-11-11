@@ -56,6 +56,24 @@ class OperacionCreate(BaseModel):
     )
 
 
+class OperacionCancel(BaseModel):
+    motivo: str = Field(min_length=5, max_length=255)
+
+    @field_validator("motivo", mode="before")
+    @classmethod
+    def validate_motivo(cls, value: object) -> str:
+        return validator_non_empty_text(value)
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "motivo": "Monto mal digitado: 1000 en lugar de 100",
+            }
+        },
+    )
+
+
 class OperacionResponse(BaseModel):
     id: UUID
     receptor_id: UUID
@@ -65,6 +83,9 @@ class OperacionResponse(BaseModel):
     config_punto_id: UUID
     sucursal_id: UUID
     referencia: str | None
+    anulada_at: datetime | None
+    anulada_por: UUID | None
+    motivo_anulacion: str | None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(
@@ -79,6 +100,9 @@ class OperacionResponse(BaseModel):
                 "config_punto_id": "44444444-4444-4444-8444-444444444444",
                 "sucursal_id": "55555555-5555-4555-8555-555555555555",
                 "referencia": "Factura 000123",
+                "anulada_at": "2026-10-13T09:00:00Z",
+                "anulada_por": "66666666-6666-4666-8666-666666666666",
+                "motivo_anulacion": "Monto mal digitado: 1000 en lugar de 100",
                 "created_at": "2026-10-12T14:30:00Z",
                 "updated_at": "2026-10-12T14:30:00Z",
             }
@@ -106,6 +130,9 @@ class OperacionResponseAudit(OperacionResponse):
                 "config_punto_id": "44444444-4444-4444-8444-444444444444",
                 "sucursal_id": "55555555-5555-4555-8555-555555555555",
                 "referencia": "Factura 000123",
+                "anulada_at": "2026-10-13T09:00:00Z",
+                "anulada_por": "66666666-6666-4666-8666-666666666666",
+                "motivo_anulacion": "Monto mal digitado: 1000 en lugar de 100",
                 "created_at": "2026-10-12T14:30:00Z",
                 "created_by": "33333333-3333-4333-8333-333333333333",
                 "updated_at": "2026-10-12T14:30:00Z",

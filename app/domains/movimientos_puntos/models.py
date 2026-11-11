@@ -34,6 +34,10 @@ class MovimientoPuntos(BaseModel, table=True):
             ") OR ("
             "tipo_movimiento = 'AJUSTE' "
             "AND operacion_id IS NULL AND canje_id IS NULL"
+            ") OR ("
+            "tipo_movimiento = 'REVERSA' "
+            "AND movimiento_origen_id IS NOT NULL "
+            "AND operacion_id IS NULL AND canje_id IS NULL"
             ")",
             name="ck_movimientos_puntos_referencia_por_tipo",
         ),

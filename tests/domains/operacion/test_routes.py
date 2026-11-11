@@ -20,6 +20,7 @@ from app.domains.operacion.schemas import (
 )
 from app.domains.operacion.services import OperacionService
 from app.shared.enums import Role
+from app.shared.errors.exceptions import AppException
 from app.shared.schemas.pagination import PaginatedResponse
 
 
@@ -186,6 +187,7 @@ def test_list_delega_filtros_opcionales(
         emisor_id=operation.emisor_id,
         receptor_id=operation.receptor_id,
         sucursal_id=operation.sucursal_id,
+        anulada=None,
     )
 
 
@@ -197,3 +199,57 @@ def test_list_valida_ids_de_filtro(
     assert client.get("/operaciones/?emisor_id=invalido").status_code == 422
     assert client.get("/operaciones/?receptor_id=invalido").status_code == 422
     assert client.get("/operaciones/?sucursal_id=invalido").status_code == 422
+
+
+def test_cancel_delega_motivo_y_principal(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, principal, session = route_context
+    principal.role = Role.ADMIN
+    operation = _operation()
+    with patch.object(
+        OperacionService,
+        "cancel",
+        new=AsyncMock(return_value=operation),
+    ) as service:
+        response = client.post(
+            f"/operaciones/{operation.id}/cancel",
+            json={"motivo": "  Monto mal digitado  "},
+        )
+
+    assert response.status_code == 200
+    service.assert_awaited_once()
+    args = service.await_args.args
+    assert args[0] is session
+    assert args[1] == operation.id
+    assert args[2].motivo == "Monto mal digitado"
+    assert args[3:] == (principal.id, principal.role)
+
+
+@pytest.mark.parametrize("role", [Role.CAJERO, Role.SUPERADMIN, Role.CLIENTE, Role.SOCIO])
+def test_cancel_rechaza_roles_sin_permiso_de_anular(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+    role: Role,
+) -> None:
+    client, principal, _ = route_context
+    principal.role = role
+    with (
+        patch.object(OperacionService, "cancel", new=AsyncMock()) as service,
+        pytest.raises(AppException) as error,
+    ):
+        client.post(
+            f"/operaciones/{uuid4()}/cancel",
+            json={"motivo": "Monto mal digitado"},
+        )
+
+    assert error.value.status_code == 403
+    service.assert_not_awaited()
+
+
+def test_cancel_requiere_motivo(
+    route_context: tuple[TestClient, CurrentUser, MagicMock],
+) -> None:
+    client, principal, _ = route_context
+    principal.role = Role.OWNER
+
+    assert client.post(f"/operaciones/{uuid4()}/cancel", json={}).status_code == 422

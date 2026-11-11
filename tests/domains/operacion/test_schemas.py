@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.domains.operacion.schemas import (
+    OperacionCancel,
     OperacionCreate,
     OperacionDetailResponse,
     OperacionListResponse,
@@ -127,3 +128,20 @@ def test_responses_compuestas_tienen_estructura_y_ejemplo_validos(
     assert set(schema.model_fields) == fields
     assert set(example) == fields
     schema.model_validate(example)
+
+
+def test_cancel_normaliza_motivo() -> None:
+    data = OperacionCancel(motivo="  Monto mal digitado  ")
+
+    assert data.motivo == "Monto mal digitado"
+
+
+@pytest.mark.parametrize("value", [None, "", "   ", "abc", "x" * 256, 123])
+def test_cancel_rechaza_motivo_invalido(value: object) -> None:
+    with pytest.raises(ValidationError):
+        OperacionCancel(motivo=value)
+
+
+def test_cancel_rechaza_campos_extra() -> None:
+    with pytest.raises(ValidationError):
+        OperacionCancel(motivo="Monto mal digitado", total_compra="100.00")

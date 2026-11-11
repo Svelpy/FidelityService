@@ -47,7 +47,9 @@ class MovimientoPuntosService:
         - Roles globales: todos los movimientos.
         - Cajero: solo los movimientos producidos por una acción suya:
           ACUMULA de operaciones que emitió, CANJE de canjes que entregó
-          (dador) y AJUSTE de canjes que canceló (created_by del ajuste).
+          (dador), AJUSTE de canjes que canceló (created_by del ajuste) y
+          REVERSA de operaciones que emitió, aunque la anulación la haya
+          realizado otro usuario.
         - Cualquier otro rol: ninguno. El cliente consulta los suyos mediante
           list_me (GET /movimientos-puntos/me), que no utiliza este filtro.
         """
@@ -64,6 +66,10 @@ class MovimientoPuntosService:
             delivered_redemptions = select(own_redemption.id).where(
                 own_redemption.dador_id == actor_id
             )
+            own_accrual = aliased(MovimientoPuntos)
+            accruals_of_emitted_operations = select(own_accrual.id).where(
+                own_accrual.operacion_id.in_(emitted_operations)
+            )
             return [
                 or_(
                     MovimientoPuntos.operacion_id.in_(emitted_operations),
@@ -71,6 +77,12 @@ class MovimientoPuntosService:
                     and_(
                         MovimientoPuntos.tipo_movimiento == TipoMovimiento.AJUSTE,
                         MovimientoPuntos.created_by == actor_id,
+                    ),
+                    and_(
+                        MovimientoPuntos.tipo_movimiento == TipoMovimiento.REVERSA,
+                        MovimientoPuntos.movimiento_origen_id.in_(
+                            accruals_of_emitted_operations
+                        ),
                     ),
                 )
             ]
@@ -105,6 +117,22 @@ class MovimientoPuntosService:
     ) -> MovimientoPuntos | None:
         statement = select(MovimientoPuntos).where(
             MovimientoPuntos.canje_id == redemption_id,
+            MovimientoPuntos.is_deleted.is_(False),
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        result = await db_session.execute(statement)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get_by_operation_id(
+        db_session: AsyncSession,
+        operation_id: UUID,
+        *,
+        for_update: bool = False,
+    ) -> MovimientoPuntos | None:
+        statement = select(MovimientoPuntos).where(
+            MovimientoPuntos.operacion_id == operation_id,
             MovimientoPuntos.is_deleted.is_(False),
         )
         if for_update:
@@ -147,7 +175,14 @@ class MovimientoPuntosService:
                 MovimientoPuntos.movimiento_origen_id == origin_movement.id,
             )
             .outerjoin(Canje, redemption_id == Canje.id)
-            .outerjoin(Operacion, MovimientoPuntos.operacion_id == Operacion.id)
+            .outerjoin(
+                Operacion,
+                func.coalesce(
+                    MovimientoPuntos.operacion_id,
+                    origin_movement.operacion_id,
+                )
+                == Operacion.id,
+            )
             .outerjoin(Sucursal, Sucursal.id == branch_id)
             .outerjoin(Vale, Vale.id == Canje.vale_id)
             .outerjoin(Negocio, Negocio.id == business_id)
@@ -210,7 +245,14 @@ class MovimientoPuntosService:
                 origin_movement,
                 MovimientoPuntos.movimiento_origen_id == origin_movement.id,
             )
-            .outerjoin(Operacion, MovimientoPuntos.operacion_id == Operacion.id)
+            .outerjoin(
+                Operacion,
+                func.coalesce(
+                    MovimientoPuntos.operacion_id,
+                    origin_movement.operacion_id,
+                )
+                == Operacion.id,
+            )
             .outerjoin(Canje, redemption_id == Canje.id)
             .outerjoin(Vale, Vale.id == Canje.vale_id)
             .where(*filters)
@@ -282,7 +324,14 @@ class MovimientoPuntosService:
                 origin_movement,
                 MovimientoPuntos.movimiento_origen_id == origin_movement.id,
             )
-            .outerjoin(Operacion, MovimientoPuntos.operacion_id == Operacion.id)
+            .outerjoin(
+                Operacion,
+                func.coalesce(
+                    MovimientoPuntos.operacion_id,
+                    origin_movement.operacion_id,
+                )
+                == Operacion.id,
+            )
             .outerjoin(emitter, emitter.id == Operacion.emisor_id)
             .outerjoin(Canje, redemption_id == Canje.id)
             .outerjoin(Vale, Vale.id == Canje.vale_id)
@@ -442,6 +491,54 @@ class MovimientoPuntosService:
             operacion_id=None,
             canje_id=None,
             movimiento_origen_id=movement_origin_id,
+            created_at=occurred_at,
+            created_by=actor_id,
+            updated_at=occurred_at,
+            updated_by=actor_id,
+            is_deleted=False,
+        )
+        db_session.add(movement)
+        return movement
+
+    @staticmethod
+    def register_reversal(
+        db_session: AsyncSession,
+        user: User,
+        accrual: MovimientoPuntos,
+        actor_id: UUID,
+        occurred_at: datetime,
+    ) -> MovimientoPuntos:
+        """Registra REVERSA de una acumulación y descuenta saldo sin confirmar."""
+        if accrual.tipo_movimiento is not TipoMovimiento.ACUMULA:
+            raise AppException(
+                "Solo puede revertirse un movimiento de acumulación.",
+                409,
+                ErrorCode.CONFLICT,
+            )
+        if user.puntos < accrual.puntos:
+            raise AppException(
+                "El cliente ya utilizó parte de los puntos de esta operación.",
+                409,
+                ErrorCode.CONFLICT,
+                {
+                    "puntos": (
+                        f"Saldo disponible {user.puntos}, se requieren "
+                        f"{accrual.puntos} para anular la operación."
+                    )
+                },
+            )
+
+        user.puntos -= accrual.puntos
+        user.updated_at = occurred_at
+        user.updated_by = actor_id
+
+        movement = MovimientoPuntos(
+            usuario_id=user.id,
+            tipo_movimiento=TipoMovimiento.REVERSA,
+            puntos=accrual.puntos,
+            operacion_id=None,
+            canje_id=None,
+            movimiento_origen_id=accrual.id,
             created_at=occurred_at,
             created_by=actor_id,
             updated_at=occurred_at,

@@ -235,6 +235,81 @@ def test_register_adjustment_repone_saldo_y_conserva_movimiento_origen() -> None
     session.commit.assert_not_called()
 
 
+def _accrual(user: User, points: int) -> MovimientoPuntos:
+    return MovimientoPuntos(
+        usuario_id=user.id,
+        tipo_movimiento=TipoMovimiento.ACUMULA,
+        puntos=points,
+        operacion_id=uuid4(),
+    )
+
+
+def test_register_reversal_descuenta_saldo_y_referencia_acumulacion() -> None:
+    session = MagicMock()
+    user = _user(points=1000)
+    accrual = _accrual(user, 900)
+    actor_id = uuid4()
+    occurred_at = datetime.now(timezone.utc)
+
+    movement = MovimientoPuntosService.register_reversal(
+        session,
+        user,
+        accrual,
+        actor_id,
+        occurred_at,
+    )
+
+    assert user.puntos == 100
+    assert user.updated_by == actor_id
+    assert movement.tipo_movimiento is TipoMovimiento.REVERSA
+    assert movement.puntos == 900
+    assert movement.operacion_id is None
+    assert movement.canje_id is None
+    assert movement.movimiento_origen_id == accrual.id
+    assert movement.created_by == actor_id
+    session.add.assert_called_once_with(movement)
+    session.commit.assert_not_called()
+
+
+def test_register_reversal_rechaza_saldo_insuficiente() -> None:
+    session = MagicMock()
+    user = _user(points=50)
+    accrual = _accrual(user, 900)
+
+    with pytest.raises(AppException) as error:
+        MovimientoPuntosService.register_reversal(
+            session,
+            user,
+            accrual,
+            uuid4(),
+            datetime.now(timezone.utc),
+        )
+
+    assert error.value.status_code == 409
+    assert user.puntos == 50
+    session.add.assert_not_called()
+
+
+def test_register_reversal_rechaza_movimiento_que_no_es_acumulacion() -> None:
+    session = MagicMock()
+    user = _user(points=1000)
+    accrual = _accrual(user, 100)
+    accrual.tipo_movimiento = TipoMovimiento.CANJE
+
+    with pytest.raises(AppException) as error:
+        MovimientoPuntosService.register_reversal(
+            session,
+            user,
+            accrual,
+            uuid4(),
+            datetime.now(timezone.utc),
+        )
+
+    assert error.value.status_code == 409
+    assert user.puntos == 1000
+    session.add.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_list_administrativo_devuelve_relaciones_y_aplica_filtros() -> None:
     session = _async_session()
@@ -377,9 +452,12 @@ def test_visibility_filters_cajero_ve_solo_movimientos_de_sus_acciones() -> None
     # Ya no depende del negocio ni de la sucursal.
     assert "negocio_id" not in sql
     assert "sucursal" not in sql
+    # REVERSA de acumulaciones de operaciones que emitió.
+    assert "movimientos_puntos.movimiento_origen_id IN" in sql
     params = list(compiled.params.values())
     assert params.count(actor_id) == 3
     assert TipoMovimiento.AJUSTE in params
+    assert TipoMovimiento.REVERSA in params
 
 
 @pytest.mark.parametrize("role", [Role.SOCIO, Role.CLIENTE])

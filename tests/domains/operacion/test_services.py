@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -10,7 +11,8 @@ from app.domains.config_puntos.services import ConfigPuntosService
 from app.domains.movimientos_puntos.models import MovimientoPuntos
 from app.domains.negocio.models import Negocio
 from app.domains.operacion.models import Operacion
-from app.domains.operacion.schemas import OperacionCreate
+from app.domains.movimientos_puntos.services import MovimientoPuntosService
+from app.domains.operacion.schemas import OperacionCancel, OperacionCreate
 from app.domains.operacion.services import OperacionService
 from app.domains.sucursal.models import Sucursal
 from app.domains.sucursal.services import SucursalService
@@ -449,3 +451,195 @@ def test_visibilidad_roles_no_previstos_no_ven_nada(role: Role) -> None:
     sql = _compiled(OperacionService._visibility_filters(uuid4(), role))
 
     assert sql == "public.operacion.id IS NULL"
+
+
+def _cancel_context(
+    *,
+    client_points: int = 1000,
+    operation_points: int = 100,
+    created_days_ago: int = 0,
+) -> tuple[MagicMock, Operacion, MovimientoPuntos, User]:
+    client = _client(points=client_points)
+    operation = Operacion(
+        receptor_id=client.id,
+        emisor_id=uuid4(),
+        total_compra=Decimal("1000.00"),
+        total_puntos=operation_points,
+        config_punto_id=uuid4(),
+        sucursal_id=uuid4(),
+        created_at=datetime.now(timezone.utc) - timedelta(days=created_days_ago),
+    )
+    accrual = MovimientoPuntos(
+        usuario_id=client.id,
+        tipo_movimiento=TipoMovimiento.ACUMULA,
+        puntos=operation_points,
+        operacion_id=operation.id,
+    )
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = operation
+    session = _session()
+    session.execute.return_value = result
+    return session, operation, accrual, client
+
+
+@pytest.mark.asyncio
+async def test_cancel_anula_operacion_y_revierte_puntos_atomicamente() -> None:
+    session, operation, accrual, client = _cancel_context(
+        client_points=1000,
+        operation_points=100,
+    )
+    actor_id = uuid4()
+
+    with (
+        patch.object(
+            MovimientoPuntosService,
+            "get_by_operation_id",
+            new=AsyncMock(return_value=accrual),
+        ) as get_accrual,
+        patch.object(
+            UserService,
+            "get",
+            new=AsyncMock(return_value=client),
+        ) as get_user,
+    ):
+        result = await OperacionService.cancel(
+            session,
+            operation.id,
+            OperacionCancel(motivo="Monto mal digitado"),
+            actor_id,
+            Role.ADMIN,
+        )
+
+    assert result is operation
+    assert operation.anulada_at is not None
+    assert operation.anulada_por == actor_id
+    assert operation.motivo_anulacion == "Monto mal digitado"
+    assert operation.updated_by == actor_id
+    assert operation.total_compra == Decimal("1000.00")
+    assert operation.total_puntos == 100
+    assert client.puntos == 900
+    reversal = session.add.call_args.args[0]
+    assert reversal.tipo_movimiento is TipoMovimiento.REVERSA
+    assert reversal.movimiento_origen_id == accrual.id
+    statement = session.execute.await_args.args[0]
+    assert "FOR UPDATE" in str(statement.compile(dialect=postgresql.dialect()))
+    get_accrual.assert_awaited_once_with(session, operation.id, for_update=True)
+    get_user.assert_awaited_once_with(
+        session,
+        operation.receptor_id,
+        include_deleted=True,
+        for_update=True,
+    )
+    session.commit.assert_awaited_once()
+    session.rollback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", [Role.CAJERO, Role.SUPERADMIN, Role.CLIENTE, Role.SOCIO])
+async def test_cancel_rechaza_roles_no_autorizados(role: Role) -> None:
+    session, operation, _, _ = _cancel_context()
+
+    with pytest.raises(AppException) as error:
+        await OperacionService.cancel(
+            session,
+            operation.id,
+            OperacionCancel(motivo="Monto mal digitado"),
+            uuid4(),
+            role,
+        )
+
+    assert error.value.status_code == 403
+    session.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancel_responde_404_si_no_existe() -> None:
+    session, _, _, _ = _cancel_context()
+    session.execute.return_value.scalar_one_or_none.return_value = None
+
+    with pytest.raises(AppException) as error:
+        await OperacionService.cancel(
+            session,
+            uuid4(),
+            OperacionCancel(motivo="Monto mal digitado"),
+            uuid4(),
+            Role.OWNER,
+        )
+
+    assert error.value.status_code == 404
+    session.rollback.assert_awaited_once()
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancel_rechaza_operacion_ya_anulada() -> None:
+    session, operation, _, _ = _cancel_context()
+    operation.anulada_at = datetime.now(timezone.utc)
+
+    with pytest.raises(AppException) as error:
+        await OperacionService.cancel(
+            session,
+            operation.id,
+            OperacionCancel(motivo="Monto mal digitado"),
+            uuid4(),
+            Role.ADMIN,
+        )
+
+    assert error.value.status_code == 409
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancel_permite_anular_operaciones_antiguas() -> None:
+    session, operation, accrual, client = _cancel_context(created_days_ago=400)
+
+    with (
+        patch.object(
+            MovimientoPuntosService,
+            "get_by_operation_id",
+            new=AsyncMock(return_value=accrual),
+        ),
+        patch.object(UserService, "get", new=AsyncMock(return_value=client)),
+    ):
+        await OperacionService.cancel(
+            session,
+            operation.id,
+            OperacionCancel(motivo="Monto mal digitado"),
+            uuid4(),
+            Role.ADMIN,
+        )
+
+    assert operation.anulada_at is not None
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancel_rechaza_si_cliente_ya_uso_los_puntos() -> None:
+    session, operation, accrual, client = _cancel_context(
+        client_points=40,
+        operation_points=100,
+    )
+
+    with (
+        patch.object(
+            MovimientoPuntosService,
+            "get_by_operation_id",
+            new=AsyncMock(return_value=accrual),
+        ),
+        patch.object(UserService, "get", new=AsyncMock(return_value=client)),
+    ):
+        with pytest.raises(AppException) as error:
+            await OperacionService.cancel(
+                session,
+                operation.id,
+                OperacionCancel(motivo="Monto mal digitado"),
+                uuid4(),
+                Role.ADMIN,
+            )
+
+    assert error.value.status_code == 409
+    assert client.puntos == 40
+    assert operation.anulada_at is None
+    session.add.assert_not_called()
+    session.rollback.assert_awaited_once()
+    session.commit.assert_not_awaited()

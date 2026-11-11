@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.domains.auth.dependencies import require_permission
 from app.domains.auth.schemas import CurrentUser
 from app.domains.operacion.schemas import (
+    OperacionCancel,
     OperacionCreate,
     OperacionDetailResponse,
     OperacionListResponse,
@@ -53,6 +54,7 @@ async def list_operaciones(
     emisor_id: Annotated[UUID | None, Query()] = None,
     receptor_id: Annotated[UUID | None, Query()] = None,
     sucursal_id: Annotated[UUID | None, Query()] = None,
+    anulada: Annotated[bool | None, Query()] = None,
 ) -> PaginatedResponse[OperacionListResponse]:
     return await OperacionService.list(
         db_session,
@@ -63,6 +65,7 @@ async def list_operaciones(
         emisor_id=emisor_id,
         receptor_id=receptor_id,
         sucursal_id=sucursal_id,
+        anulada=anulada,
     )
 
 
@@ -130,4 +133,28 @@ async def create_operacion(
         data,
         current_user.id,
         current_user.sucursal_id,
+    )
+
+
+@router.post(
+    "/{operation_id}/cancel",
+    response_model=OperacionResponse,
+    summary="Anular operación y revertir sus puntos",
+    responses=_error_responses(401, 403, 404, 409, 422, 500),
+)
+async def cancel_operacion(
+    operation_id: UUID,
+    data: OperacionCancel,
+    current_user: Annotated[
+        CurrentUser,
+        Depends(require_permission(Module.OPERACION, Action.UPDATE)),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+) -> OperacionResponse:
+    return await OperacionService.cancel(
+        db_session,
+        operation_id,
+        data,
+        current_user.id,
+        current_user.role,
     )

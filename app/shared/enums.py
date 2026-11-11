@@ -50,6 +50,7 @@ class TipoMovimiento(str, Enum):
     ACUMULA = "ACUMULA" #OPERACION (SUMA)
     CANJE = "CANJE"     #CANJE (RESTA)
     AJUSTE = "AJUSTE"   #CANCELACION DE CANJE (SUMA)
+    REVERSA = "REVERSA" #ANULACION DE OPERACION (RESTA)
 
 
 class Genero(str, Enum):

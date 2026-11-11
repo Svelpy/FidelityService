@@ -77,7 +77,10 @@ class ReporteService:
                 actor_id=Operacion.emisor_id,
                 puntos=Operacion.total_puntos,
                 bs=Operacion.total_compra,
-                filtros=(Operacion.is_deleted.is_(False),),
+                filtros=(
+                    Operacion.is_deleted.is_(False),
+                    Operacion.anulada_at.is_(None),
+                ),
             )
         # Un canje en estado final no puede modificarse (trigger
         # trg_canje_estado_final_inmutable), por lo que updated_at es la

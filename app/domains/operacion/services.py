@@ -13,6 +13,7 @@ from app.domains.movimientos_puntos.services import MovimientoPuntosService
 from app.domains.negocio.models import Negocio
 from app.domains.operacion.models import Operacion
 from app.domains.operacion.schemas import (
+    OperacionCancel,
     OperacionCreate,
     OperacionDetailResponse,
     OperacionListResponse,
@@ -37,6 +38,9 @@ class OperacionService:
     _ROLES_WITH_GLOBAL_OPERATION_VISIBILITY = frozenset(
         {Role.SUPERADMIN, Role.ADMIN, Role.OWNER}
     )
+    # La anulación nunca la realiza quien registra compras (CAJERO): así una
+    # misma persona no puede asignar y retirar puntos por su cuenta.
+    _CANCELLER_ROLES = frozenset({Role.ADMIN, Role.OWNER})
 
     @staticmethod
     def _integrity_exception(error: IntegrityError) -> AppException:
@@ -81,6 +85,18 @@ class OperacionService:
                 409,
                 ErrorCode.CONFLICT,
                 {"operacion": "La operación ya tiene un movimiento de puntos asociado."},
+            ),
+            "uq_movimientos_puntos_movimiento_origen_id": (
+                "La operación ya fue anulada.",
+                409,
+                ErrorCode.CONFLICT,
+                {"operacion": "La acumulación de esta operación ya fue revertida."},
+            ),
+            "ck_operacion_anulacion_consistente": (
+                "Los datos de anulación de la operación están incompletos.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+                {"motivo": "La anulación requiere fecha, responsable y motivo."},
             ),
         }
         if constraint_name in known_constraints:
@@ -241,6 +257,7 @@ class OperacionService:
         emisor_id: UUID | None = None,
         receptor_id: UUID | None = None,
         sucursal_id: UUID | None = None,
+        anulada: bool | None = None,
     ) -> PaginatedResponse[OperacionListResponse]:
         if page < 1 or per_page < 1 or per_page > 100:
             raise AppException(
@@ -258,6 +275,10 @@ class OperacionService:
             filters.append(Operacion.receptor_id == receptor_id)
         if sucursal_id is not None:
             filters.append(Operacion.sucursal_id == sucursal_id)
+        if anulada is True:
+            filters.append(Operacion.anulada_at.is_not(None))
+        elif anulada is False:
+            filters.append(Operacion.anulada_at.is_(None))
         total_result = await db_session.execute(
             select(func.count()).select_from(Operacion).where(*filters)
         )
@@ -366,5 +387,99 @@ class OperacionService:
             operation.id,
             actor_id,
             recipient.id,
+        )
+        return operation
+
+    @classmethod
+    async def cancel(
+        cls,
+        db_session: AsyncSession,
+        operation_id: UUID,
+        data: OperacionCancel,
+        actor_id: UUID,
+        actor_role: Role,
+    ) -> Operacion:
+        """Anula una operación revirtiendo sus puntos en una sola transacción.
+
+        La operación y su ACUMULA no se modifican en sus importes: se marca la
+        operación como anulada y se registra un movimiento REVERSA que descuenta
+        del cliente los puntos acumulados.
+        """
+        if actor_role not in cls._CANCELLER_ROLES:
+            raise AppException(
+                "No tienes permisos para anular operaciones.",
+                403,
+                ErrorCode.PERMISSION_DENIED,
+            )
+
+        try:
+            result = await db_session.execute(
+                select(Operacion)
+                .where(
+                    Operacion.id == operation_id,
+                    Operacion.is_deleted.is_(False),
+                )
+                .with_for_update()
+            )
+            operation = result.scalar_one_or_none()
+            if operation is None:
+                raise AppException(
+                    "Operacion no encontrada.",
+                    404,
+                    ErrorCode.RESOURCE_NOT_FOUND,
+                )
+            if operation.anulada_at is not None:
+                raise AppException(
+                    "La operación ya fue anulada.",
+                    409,
+                    ErrorCode.CONFLICT,
+                    {"anulada_at": operation.anulada_at.isoformat()},
+                )
+
+            now = datetime.now(timezone.utc)
+            accrual = await MovimientoPuntosService.get_by_operation_id(
+                db_session,
+                operation.id,
+                for_update=True,
+            )
+            if accrual is None:
+                raise AppException(
+                    "La operación no tiene un movimiento de acumulación asociado.",
+                    409,
+                    ErrorCode.CONFLICT,
+                )
+            recipient = await UserService.get(
+                db_session,
+                operation.receptor_id,
+                include_deleted=True,
+                for_update=True,
+            )
+
+            MovimientoPuntosService.register_reversal(
+                db_session,
+                recipient,
+                accrual,
+                actor_id,
+                now,
+            )
+            operation.anulada_at = now
+            operation.anulada_por = actor_id
+            operation.motivo_anulacion = data.motivo
+            operation.updated_at = now
+            operation.updated_by = actor_id
+            await db_session.flush()
+        except IntegrityError as error:
+            await db_session.rollback()
+            raise cls._integrity_exception(error) from error
+        except Exception:
+            await db_session.rollback()
+            raise
+        await cls._commit(db_session, operation)
+        logger.info(
+            "Operación anulada: operation_id=%s anulada_por=%s receptor_id=%s puntos=%s",
+            operation.id,
+            actor_id,
+            operation.receptor_id,
+            operation.total_puntos,
         )
         return operation

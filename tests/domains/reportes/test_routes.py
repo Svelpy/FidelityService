@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.domains.auth.dependencies import get_current_principal
 from app.domains.auth.schemas import CurrentUser
 from app.domains.reportes.routes import router
+from app.domains.reportes.schemas import RuletaEntrada, RuletaResponse, RuletaRueda
 from app.domains.reportes.services import ReporteService
 from app.middlewares.exception_handlers import register_exception_handlers
 from app.shared.enums import Role, TipoReportePuntos
@@ -106,4 +107,131 @@ def test_reporte_puntos_valida_parametros(
         response = client.get(f"/reportes/puntos?{params}")
 
     assert response.status_code == 422
+    service.assert_not_awaited()
+
+
+@pytest.mark.parametrize("actor_role", [Role.SUPERADMIN, Role.OWNER, Role.ADMIN])
+def test_reporte_clientes_devuelve_excel(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
+) -> None:
+    client, current_user, db_session, settings = route_context
+    current_user.role = actor_role
+
+    with (
+        patch.object(
+            ReporteService,
+            "generar_excel_clientes",
+            new=AsyncMock(return_value=b"xlsx"),
+        ) as service,
+        patch.object(
+            ReporteService,
+            "nombre_archivo_clientes",
+            return_value="clientes_2026-11-16.xlsx",
+        ),
+    ):
+        response = client.get("/reportes/clientes")
+
+    assert response.status_code == 200
+    assert response.content == b"xlsx"
+    assert response.headers["content-type"] == ReporteService.XLSX_MEDIA_TYPE
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="clientes_2026-11-16.xlsx"'
+    )
+    service.assert_awaited_once_with(db_session, settings)
+
+
+@pytest.mark.parametrize("actor_role", [Role.CAJERO, Role.SOCIO, Role.CLIENTE])
+def test_reporte_clientes_rechaza_roles_no_autorizados(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
+) -> None:
+    client, current_user, _, _ = route_context
+    current_user.role = actor_role
+
+    with patch.object(ReporteService, "generar_excel_clientes", new=AsyncMock()) as service:
+        response = client.get("/reportes/clientes")
+
+    assert response.status_code == 403
+    service.assert_not_awaited()
+
+
+def test_ruleta_clientes_devuelve_json_con_alias(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+) -> None:
+    client, _, _, _ = route_context
+    ruleta = RuletaResponse(
+        root_id="abc123abc123",
+        wheels=[
+            RuletaRueda(
+                id="abc123abc123",
+                name="Sorteo de clientes",
+                entries=[RuletaEntrada(id="def456def456", label="Ana", weight=3)],
+            )
+        ],
+    )
+
+    with patch.object(
+        ReporteService,
+        "generar_ruleta",
+        new=AsyncMock(return_value=ruleta),
+    ) as service:
+        response = client.post(
+            "/reportes/clientes/ruleta",
+            files={"file": ("clientes.xlsx", b"xlsx", ReporteService.XLSX_MEDIA_TYPE)},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "version": 1,
+        "name": "Ruleta personalizada",
+        "rootId": "abc123abc123",
+        "duration": 5,
+        "palette": "aurora",
+        "showPercent": True,
+        "sound": False,
+        "wheels": [
+            {
+                "id": "abc123abc123",
+                "name": "Sorteo de clientes",
+                "entries": [
+                    {
+                        "id": "def456def456",
+                        "label": "Ana",
+                        "weight": 3,
+                        "color": None,
+                        "next": [],
+                    }
+                ],
+            }
+        ],
+    }
+    service.assert_awaited_once()
+
+
+def test_ruleta_clientes_requiere_archivo(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+) -> None:
+    client, _, _, _ = route_context
+
+    response = client.post("/reportes/clientes/ruleta")
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("actor_role", [Role.CAJERO, Role.SOCIO, Role.CLIENTE])
+def test_ruleta_clientes_rechaza_roles_no_autorizados(
+    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
+) -> None:
+    client, current_user, _, _ = route_context
+    current_user.role = actor_role
+
+    with patch.object(ReporteService, "generar_ruleta", new=AsyncMock()) as service:
+        response = client.post(
+            "/reportes/clientes/ruleta",
+            files={"file": ("clientes.xlsx", b"xlsx", ReporteService.XLSX_MEDIA_TYPE)},
+        )
+
+    assert response.status_code == 403
     service.assert_not_awaited()

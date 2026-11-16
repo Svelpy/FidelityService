@@ -85,3 +85,36 @@ class ReportePuntosData(BaseModel):
     total_por_sucursal: dict[UUID, ReporteTotales]
     total: ReporteTotales
     usuarios: list[ReporteUsuario]
+
+
+class RuletaEntrada(BaseModel):
+    """Opción de la ruleta: un cliente con su peso."""
+
+    id: str
+    label: str
+    weight: int
+    color: str | None = None
+    next: list[str] = Field(default_factory=list)
+
+
+class RuletaRueda(BaseModel):
+    """Rueda de la ruleta con sus opciones."""
+
+    id: str
+    name: str
+    entries: list[RuletaEntrada]
+
+
+class RuletaResponse(BaseModel):
+    """Configuración de ruleta generada a partir del Excel de clientes."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    version: int = 1
+    name: str = "Ruleta personalizada"
+    root_id: str = Field(alias="rootId")
+    duration: int = 5
+    palette: str = "aurora"
+    show_percent: bool = Field(default=True, alias="showPercent")
+    sound: bool = False
+    wheels: list[RuletaRueda]

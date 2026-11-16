@@ -4,7 +4,7 @@ from io import BytesIO
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from sqlalchemy.dialects import postgresql
 
 from app.core.config import Settings
@@ -13,6 +13,7 @@ from app.domains.reportes.schemas import ReportePuntosQuery, ReporteTotales
 from app.domains.reportes.services import ReporteService
 from app.domains.sucursal.models import Sucursal
 from app.domains.users.models import User
+from app.shared.errors.exceptions import AppException
 from app.shared.enums import Genero, Role, TipoNegocio, TipoReportePuntos
 
 
@@ -273,3 +274,286 @@ async def test_generar_excel_crea_dos_hojas_con_totales() -> None:
     assert usuarios["A5"].value == "Luis (eliminado)"
     assert usuarios["A6"].value == "TOTAL"
     assert usuarios["F6"].value == Decimal("35.50")
+
+
+@pytest.mark.asyncio
+async def test_get_clientes_filtra_clientes_activos() -> None:
+    cliente = _user(role=Role.CLIENTE)
+    session = MagicMock()
+    session.execute = AsyncMock(return_value=_scalars([cliente]))
+
+    clientes = await ReporteService.get_clientes(session)
+
+    assert clientes == [cliente]
+    sql = str(
+        session.execute.await_args.args[0].compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    assert "usuario.role = 'CLIENTE'" in sql
+    assert "usuario.is_deleted IS false" in sql
+    assert (
+        "ORDER BY public.usuario.nombre, public.usuario.apellidos, public.usuario.ci"
+        in sql
+    )
+
+
+def test_nombre_archivo_clientes_usa_fecha_local() -> None:
+    nombre = ReporteService.nombre_archivo_clientes(_settings())
+
+    assert nombre.startswith("clientes_")
+    assert nombre.endswith(".xlsx")
+
+
+def test_generar_excel_clientes_escribe_una_fila_por_cliente() -> None:
+    clientes = [
+        _user(
+            role=Role.CLIENTE,
+            nombre="Ana",
+            apellidos="Pérez",
+            ci="01234567",
+            email="ana@example.com",
+            genero=Genero.F,
+            birth_date=date(1990, 5, 20),
+            direccion="Calle 1",
+            puntos=1200,
+            created_at=datetime(2026, 11, 2, 2, 30, tzinfo=timezone.utc),
+        ),
+        _user(role=Role.CLIENTE, nombre="Luis", ci="7654321", genero=Genero.M),
+    ]
+
+    content = ReporteService.generar_excel_clientes_desde(clientes, _settings())
+
+    ws = load_workbook(BytesIO(content))["Clientes"]
+    assert "(2 en total)" in ws["A1"].value
+    assert [cell.value for cell in ws[3]] == [
+        "Nombre",
+        "Apellidos",
+        "CI",
+        "Teléfono",
+        "Email",
+        "Género",
+        "Fecha de nacimiento",
+        "Dirección",
+        "Puntos",
+        "Peso",
+        "Nivel",
+        "Fecha de registro",
+    ]
+    assert [cell.value for cell in ws[4]] == [
+        "Ana",
+        "Pérez",
+        "01234567",
+        "71234567",
+        "ana@example.com",
+        "Femenino",
+        datetime(1990, 5, 20),
+        "Calle 1",
+        1200,
+        24,
+        "ORO",
+        datetime(2026, 11, 1, 22, 30),
+    ]
+    assert ws["J4"].number_format == "#,##0"
+    assert ws["A5"].value == "Luis"
+    assert ws["F5"].value == "Masculino"
+    assert ws["K5"].value == "BRONCE"
+    assert ws.auto_filter.ref == "A3:L5"
+
+
+@pytest.mark.parametrize(
+    ("puntos", "peso"),
+    [(0, 0), (25, 0), (49, 0), (50, 1), (73, 1), (99, 1), (1200, 24)],
+)
+def test_generar_excel_clientes_calcula_peso_entero(puntos: int, peso: int) -> None:
+    content = ReporteService.generar_excel_clientes_desde(
+        [_user(role=Role.CLIENTE, puntos=puntos)],
+        _settings(),
+    )
+
+    ws = load_workbook(BytesIO(content))["Clientes"]
+    assert ws["J4"].value == peso
+    assert isinstance(ws["J4"].value, int)
+    assert ws.freeze_panes == "A4"
+
+
+def test_generar_excel_clientes_sin_clientes() -> None:
+    content = ReporteService.generar_excel_clientes_desde([], _settings())
+
+    ws = load_workbook(BytesIO(content))["Clientes"]
+    assert "(0 en total)" in ws["A1"].value
+    assert ws["A3"].value == "Nombre"
+    assert ws["A4"].value is None
+
+
+@pytest.mark.asyncio
+async def test_generar_excel_clientes_consulta_y_genera() -> None:
+    cliente = _user(role=Role.CLIENTE)
+    session = MagicMock()
+    session.execute = AsyncMock(return_value=_scalars([cliente]))
+
+    content = await ReporteService.generar_excel_clientes(session, _settings())
+
+    ws = load_workbook(BytesIO(content))["Clientes"]
+    assert ws["A4"].value == "Ana"
+
+
+def _excel(filas: list[list[object]], hoja: str = "Clientes") -> bytes:
+    workbook = Workbook()
+    ws = workbook.active
+    ws.title = hoja
+    for fila in filas:
+        ws.append(fila)
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+def _upload(content: bytes, filename: str = "clientes.xlsx") -> MagicMock:
+    file = MagicMock()
+    file.filename = filename
+    file.read = AsyncMock(return_value=content)
+    return file
+
+
+def test_ruleta_desde_excel_generado_por_el_reporte() -> None:
+    clientes = [
+        _user(role=Role.CLIENTE, nombre="Ana", apellidos="Pérez", puntos=1234),
+        _user(role=Role.CLIENTE, nombre="Luis", puntos=20),
+        _user(role=Role.CLIENTE, nombre="Eva", apellidos="Rojas", puntos=100),
+    ]
+    content = ReporteService.generar_excel_clientes_desde(clientes, _settings())
+
+    ruleta = ReporteService.generar_ruleta_desde_excel(content)
+    data = ruleta.model_dump(by_alias=True)
+
+    assert data["version"] == 1
+    assert data["name"] == "Ruleta personalizada"
+    assert data["duration"] == 5
+    assert data["palette"] == "aurora"
+    assert data["showPercent"] is True
+    assert data["sound"] is False
+    assert len(data["wheels"]) == 1
+    rueda = data["wheels"][0]
+    assert data["rootId"] == rueda["id"]
+    assert rueda["name"] == "Sorteo de clientes"
+    # Luis tiene peso 0 (20 // 50) y se omite.
+    assert [(e["label"], e["weight"]) for e in rueda["entries"]] == [
+        ("Ana Pérez", 24),
+        ("Eva Rojas", 2),
+    ]
+    for entrada in rueda["entries"]:
+        assert len(entrada["id"]) == 12
+        assert entrada["color"] is None
+        assert entrada["next"] == []
+    ids = [rueda["id"], *(e["id"] for e in rueda["entries"])]
+    assert len(set(ids)) == len(ids)
+
+
+def test_ruleta_busca_columnas_por_encabezado_en_cualquier_orden() -> None:
+    content = _excel(
+        [
+            ["Peso", "Email", "Nombre"],
+            [3, "a@x.com", "  Ana   María "],
+            [None, None, None],
+            ["5", None, "Luis"],
+            [2.0, None, "Eva"],
+        ],
+        hoja="Otra",
+    )
+
+    ruleta = ReporteService.generar_ruleta_desde_excel(content)
+
+    assert [(e.label, e.weight) for e in ruleta.wheels[0].entries] == [
+        ("Ana María", 3),
+        ("Luis", 5),
+        ("Eva", 2),
+    ]
+
+
+def test_ruleta_rechaza_excel_sin_columnas_requeridas() -> None:
+    content = _excel([["Nombre", "Puntos"], ["Ana", 100]])
+
+    with pytest.raises(AppException) as error:
+        ReporteService.generar_ruleta_desde_excel(content)
+
+    assert error.value.status_code == 422
+    assert "Peso" in error.value.details["file"]
+
+
+def test_ruleta_reporta_filas_invalidas() -> None:
+    content = _excel(
+        [
+            ["Nombre", "Peso"],
+            ["Ana", 2.5],
+            ["", 3],
+            ["Luis", -1],
+            ["Eva", "mucho"],
+            ["Leo", 4],
+        ]
+    )
+
+    with pytest.raises(AppException) as error:
+        ReporteService.generar_ruleta_desde_excel(content)
+
+    detalle = error.value.details["file"]
+    assert "fila 2: el peso" in detalle
+    assert "fila 3: falta el nombre" in detalle
+    assert "fila 4: el peso" in detalle
+    assert "fila 5: el peso" in detalle
+    assert "fila 6" not in detalle
+
+
+def test_ruleta_rechaza_si_todos_tienen_peso_cero() -> None:
+    content = _excel([["Nombre", "Peso"], ["Ana", 0], ["Luis", 0]])
+
+    with pytest.raises(AppException) as error:
+        ReporteService.generar_ruleta_desde_excel(content)
+
+    assert error.value.message == "No hay clientes con peso mayor a 0 para la ruleta."
+
+
+def test_ruleta_rechaza_archivo_que_no_es_xlsx() -> None:
+    with pytest.raises(AppException) as error:
+        ReporteService.generar_ruleta_desde_excel(b"no es un zip")
+
+    assert error.value.status_code == 422
+    assert error.value.message == "El archivo no es un Excel .xlsx válido."
+
+
+def test_ruleta_rechaza_demasiadas_filas(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ReporteService, "MAX_FILAS_RULETA", 2)
+    content = _excel([["Nombre", "Peso"], ["A", 1], ["B", 1], ["C", 1]])
+
+    with pytest.raises(AppException) as error:
+        ReporteService.generar_ruleta_desde_excel(content)
+
+    assert "máximo de 2 filas" in error.value.message
+
+
+@pytest.mark.asyncio
+async def test_generar_ruleta_valida_extension_tamano_y_vacio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(AppException) as extension:
+        await ReporteService.generar_ruleta(_upload(b"x", "clientes.csv"))
+    assert extension.value.message == "El archivo debe ser un Excel .xlsx."
+
+    with pytest.raises(AppException) as vacio:
+        await ReporteService.generar_ruleta(_upload(b""))
+    assert vacio.value.message == "El archivo está vacío."
+
+    monkeypatch.setattr(ReporteService, "MAX_EXCEL_BYTES", 3)
+    with pytest.raises(AppException) as grande:
+        await ReporteService.generar_ruleta(_upload(b"1234"))
+    assert grande.value.message == "El archivo no puede pesar más de 5MB."
+
+
+@pytest.mark.asyncio
+async def test_generar_ruleta_lee_el_archivo() -> None:
+    content = _excel([["Nombre", "Peso"], ["Ana", 7]])
+
+    ruleta = await ReporteService.generar_ruleta(_upload(content, "Clientes.XLSX"))
+
+    assert ruleta.wheels[0].entries[0].weight == 7

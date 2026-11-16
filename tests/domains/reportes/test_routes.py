@@ -156,82 +156,68 @@ def test_reporte_clientes_rechaza_roles_no_autorizados(
     service.assert_not_awaited()
 
 
-def test_ruleta_clientes_devuelve_json_con_alias(
+@pytest.mark.parametrize("actor_role", [Role.SUPERADMIN, Role.OWNER, Role.ADMIN])
+def test_descargar_ruleta_clientes_devuelve_archivo_json(
     route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
+    actor_role: Role,
 ) -> None:
-    client, _, _, _ = route_context
+    client, current_user, db_session, _ = route_context
+    current_user.role = actor_role
     ruleta = RuletaResponse(
         root_id="abc123abc123",
         wheels=[
             RuletaRueda(
                 id="abc123abc123",
                 name="Sorteo de clientes",
-                entries=[RuletaEntrada(id="def456def456", label="Ana", weight=3)],
+                entries=[RuletaEntrada(id="def456def456", label="María", weight=1)],
             )
         ],
     )
 
-    with patch.object(
-        ReporteService,
-        "generar_ruleta",
-        new=AsyncMock(return_value=ruleta),
-    ) as service:
-        response = client.post(
-            "/reportes/clientes/ruleta",
-            files={"file": ("clientes.xlsx", b"xlsx", ReporteService.XLSX_MEDIA_TYPE)},
-        )
+    with (
+        patch.object(
+            ReporteService,
+            "generar_ruleta_clientes",
+            new=AsyncMock(return_value=ruleta),
+        ) as service,
+        patch.object(
+            ReporteService,
+            "nombre_archivo_ruleta",
+            return_value="ruleta_clientes_2026-11-16.json",
+        ),
+    ):
+        response = client.get("/reportes/clientes/ruleta")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "version": 1,
-        "name": "Ruleta personalizada",
-        "rootId": "abc123abc123",
-        "duration": 5,
-        "palette": "aurora",
-        "showPercent": True,
-        "sound": False,
-        "wheels": [
-            {
-                "id": "abc123abc123",
-                "name": "Sorteo de clientes",
-                "entries": [
-                    {
-                        "id": "def456def456",
-                        "label": "Ana",
-                        "weight": 3,
-                        "color": None,
-                        "next": [],
-                    }
-                ],
-            }
-        ],
+    assert response.headers["content-type"] == "application/json"
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="ruleta_clientes_2026-11-16.json"'
+    )
+    data = response.json()
+    assert data["rootId"] == "abc123abc123"
+    assert data["showPercent"] is True
+    assert data["wheels"][0]["entries"][0] == {
+        "id": "def456def456",
+        "label": "María",
+        "weight": 1,
+        "color": None,
+        "next": [],
     }
-    service.assert_awaited_once()
-
-
-def test_ruleta_clientes_requiere_archivo(
-    route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
-) -> None:
-    client, _, _, _ = route_context
-
-    response = client.post("/reportes/clientes/ruleta")
-
-    assert response.status_code == 422
+    service.assert_awaited_once_with(db_session)
 
 
 @pytest.mark.parametrize("actor_role", [Role.CAJERO, Role.SOCIO, Role.CLIENTE])
-def test_ruleta_clientes_rechaza_roles_no_autorizados(
+def test_descargar_ruleta_clientes_rechaza_roles_no_autorizados(
     route_context: tuple[TestClient, CurrentUser, MagicMock, MagicMock],
     actor_role: Role,
 ) -> None:
     client, current_user, _, _ = route_context
     current_user.role = actor_role
 
-    with patch.object(ReporteService, "generar_ruleta", new=AsyncMock()) as service:
-        response = client.post(
-            "/reportes/clientes/ruleta",
-            files={"file": ("clientes.xlsx", b"xlsx", ReporteService.XLSX_MEDIA_TYPE)},
-        )
+    with patch.object(
+        ReporteService, "generar_ruleta_clientes", new=AsyncMock()
+    ) as service:
+        response = client.get("/reportes/clientes/ruleta")
 
     assert response.status_code == 403
     service.assert_not_awaited()

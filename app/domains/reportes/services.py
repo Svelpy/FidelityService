@@ -5,10 +5,8 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from io import BytesIO
 from uuid import UUID, uuid4
-from zipfile import BadZipFile, ZipFile
 
-from fastapi import UploadFile
-from openpyxl import Workbook, load_workbook
+from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
@@ -574,6 +572,14 @@ class ReporteService:
         ("Fecha de registro", 18),
     )
 
+    @classmethod
+    def calcular_peso(cls, puntos: int) -> int:
+        """Cada 50 puntos completos valen 1 de peso: 49 -> 0, 50/51/70 -> 1, 100 -> 2.
+
+        Es la única fuente del cálculo: la usan el Excel y la ruleta JSON.
+        """
+        return max(puntos, 0) // cls._DIVISOR_PESO
+
     @staticmethod
     def _zona_local(settings: Settings) -> timezone:
         return timezone(timedelta(hours=settings.TIMEZONE_OFFSET_HOURS))
@@ -630,7 +636,7 @@ class ReporteService:
                 (cliente.birth_date, cls._FORMATO_FECHA),
                 (cliente.direccion, None),
                 (cliente.puntos, cls._FORMATO_ENTERO),
-                (cliente.puntos // cls._DIVISOR_PESO, cls._FORMATO_ENTERO),
+                (cls.calcular_peso(cliente.puntos), cls._FORMATO_ENTERO),
                 (ResumenService.calcular_nivel(cliente.puntos).actual.value, None),
                 (registro, "DD/MM/YYYY HH:MM"),
             )
@@ -666,157 +672,37 @@ class ReporteService:
         return content
 
     # ------------------------------------------------------------------
-    # Ruleta a partir del Excel de clientes
+    # Ruleta de clientes en JSON
     # ------------------------------------------------------------------
 
-    MAX_EXCEL_BYTES = 5 * 1024 * 1024
-    # Límite del contenido descomprimido: protege contra archivos .xlsx
-    # que ocupan poco pero se expanden a cientos de MB al leerlos.
-    _MAX_EXCEL_DESCOMPRIMIDO = 50 * 1024 * 1024
-    MAX_FILAS_RULETA = 10_000
-    _FILAS_BUSQUEDA_ENCABEZADO = 10
-    _MAX_ERRORES_REPORTADOS = 10
     _NOMBRE_RUEDA = "Sorteo de clientes"
 
     @staticmethod
-    def _error_excel(mensaje: str, detalle: str | None = None) -> AppException:
-        return AppException(
-            mensaje,
-            422,
-            ErrorCode.VALIDATION_ERROR,
-            {"file": detalle or mensaje},
-        )
-
-    @staticmethod
-    def _texto_celda(value: object) -> str:
-        if value is None:
-            return ""
-        return " ".join(str(value).split())
-
-    @staticmethod
-    def _peso_celda(value: object) -> int | None:
-        """Convierte la celda Peso a entero; None si no es un entero >= 0."""
-        if isinstance(value, bool):
-            return None
-        if isinstance(value, int):
-            numero = value
-        elif isinstance(value, float) and value.is_integer():
-            numero = int(value)
-        elif isinstance(value, str) and value.strip().isdigit():
-            numero = int(value.strip())
-        else:
-            return None
-        return numero if numero >= 0 else None
+    def _normalizar_texto(value: str) -> str:
+        return " ".join(value.split())
 
     @staticmethod
     def _id_ruleta() -> str:
         return uuid4().hex[:12]
 
     @classmethod
-    def _validar_zip(cls, content: bytes) -> None:
-        try:
-            with ZipFile(BytesIO(content)) as archivo:
-                descomprimido = sum(info.file_size for info in archivo.infolist())
-        except BadZipFile as exc:
-            raise cls._error_excel("El archivo no es un Excel .xlsx válido.") from exc
-        if descomprimido > cls._MAX_EXCEL_DESCOMPRIMIDO:
-            raise cls._error_excel("El contenido del Excel es demasiado grande.")
-
-    @classmethod
-    def generar_ruleta_desde_excel(cls, content: bytes) -> RuletaResponse:
-        cls._validar_zip(content)
-        try:
-            workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
-        except Exception as exc:  # openpyxl lanza varios tipos según el daño
-            raise cls._error_excel("No se pudo leer el archivo Excel.") from exc
-
-        try:
-            ws = (
-                workbook["Clientes"]
-                if "Clientes" in workbook.sheetnames
-                else workbook.worksheets[0]
+    def _construir_ruleta(cls, opciones: list[tuple[str, int]]) -> RuletaResponse:
+        """Arma la ruleta con (label, peso); omite los de peso 0."""
+        entradas = [
+            RuletaEntrada(
+                id=cls._id_ruleta(),
+                label=cls._normalizar_texto(label),
+                weight=peso,
             )
-            filas = ws.iter_rows(values_only=True)
-
-            columnas: dict[str, int] | None = None
-            numero_fila = 0
-            for fila in filas:
-                numero_fila += 1
-                encabezados = {
-                    cls._texto_celda(value).lower(): index
-                    for index, value in enumerate(fila)
-                    if cls._texto_celda(value)
-                }
-                if "nombre" in encabezados and "peso" in encabezados:
-                    columnas = encabezados
-                    break
-                if numero_fila >= cls._FILAS_BUSQUEDA_ENCABEZADO:
-                    break
-            if columnas is None:
-                raise cls._error_excel(
-                    "El Excel no tiene las columnas requeridas.",
-                    "Se esperaban los encabezados 'Nombre' y 'Peso'.",
-                )
-
-            col_nombre = columnas["nombre"]
-            col_apellidos = columnas.get("apellidos")
-            col_peso = columnas["peso"]
-
-            entradas: list[RuletaEntrada] = []
-            errores: list[str] = []
-            filas_leidas = 0
-            for fila in filas:
-                numero_fila += 1
-                valores = list(fila)
-                if not any(cls._texto_celda(value) for value in valores):
-                    continue
-
-                filas_leidas += 1
-                if filas_leidas > cls.MAX_FILAS_RULETA:
-                    raise cls._error_excel(
-                        f"El Excel supera el máximo de {cls.MAX_FILAS_RULETA} filas."
-                    )
-
-                def celda(index: int | None) -> object:
-                    if index is None or index >= len(valores):
-                        return None
-                    return valores[index]
-
-                nombre = cls._texto_celda(celda(col_nombre))
-                apellidos = cls._texto_celda(celda(col_apellidos))
-                peso = cls._peso_celda(celda(col_peso))
-
-                if not nombre:
-                    errores.append(f"fila {numero_fila}: falta el nombre")
-                    continue
-                if peso is None:
-                    errores.append(
-                        f"fila {numero_fila}: el peso debe ser un entero mayor o igual a 0"
-                    )
-                    continue
-                if peso == 0:
-                    continue
-
-                entradas.append(
-                    RuletaEntrada(
-                        id=cls._id_ruleta(),
-                        label=f"{nombre} {apellidos}".strip(),
-                        weight=peso,
-                    )
-                )
-        finally:
-            workbook.close()
-
-        if errores:
-            mostrados = errores[: cls._MAX_ERRORES_REPORTADOS]
-            restantes = len(errores) - len(mostrados)
-            detalle = "; ".join(mostrados)
-            if restantes:
-                detalle += f"; y {restantes} fila(s) más con errores"
-            raise cls._error_excel("El Excel tiene filas inválidas.", detalle)
+            for label, peso in opciones
+            if peso > 0
+        ]
         if not entradas:
-            raise cls._error_excel(
-                "No hay clientes con peso mayor a 0 para la ruleta."
+            raise AppException(
+                "No hay clientes con peso mayor a 0 para la ruleta.",
+                422,
+                ErrorCode.VALIDATION_ERROR,
+                {"peso": "Se necesitan al menos 50 puntos para tener peso 1."},
             )
 
         rueda_id = cls._id_ruleta()
@@ -828,20 +714,22 @@ class ReporteService:
         )
 
     @classmethod
-    async def generar_ruleta(cls, file: UploadFile) -> RuletaResponse:
-        filename = (file.filename or "").lower()
-        if not filename.endswith(".xlsx"):
-            raise cls._error_excel("El archivo debe ser un Excel .xlsx.")
+    def nombre_archivo_ruleta(cls, settings: Settings) -> str:
+        hoy = datetime.now(cls._zona_local(settings)).date()
+        return f"ruleta_clientes_{hoy.isoformat()}.json"
 
-        content = await file.read(cls.MAX_EXCEL_BYTES + 1)
-        if len(content) > cls.MAX_EXCEL_BYTES:
-            raise cls._error_excel("El archivo no puede pesar más de 5MB.")
-        if not content:
-            raise cls._error_excel("El archivo está vacío.")
-
-        ruleta = await asyncio.to_thread(cls.generar_ruleta_desde_excel, content)
+    @classmethod
+    async def generar_ruleta_clientes(cls, db_session: AsyncSession) -> RuletaResponse:
+        clientes = await cls.get_clientes(db_session)
+        ruleta = cls._construir_ruleta(
+            [
+                (f"{cliente.nombre} {cliente.apellidos or ''}", cls.calcular_peso(cliente.puntos))
+                for cliente in clientes
+            ]
+        )
         logger.info(
-            "Ruleta generada desde Excel: opciones=%s",
+            "Ruleta de clientes generada: clientes=%s opciones=%s",
+            len(clientes),
             len(ruleta.wheels[0].entries),
         )
         return ruleta

@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -103,27 +104,38 @@ async def get_reporte_clientes(
     )
 
 
-@router.post(
+@router.get(
     "/clientes/ruleta",
-    response_model=RuletaResponse,
-    summary="Generar ruleta desde el Excel de clientes",
+    response_class=JSONResponse,
+    summary="Descargar ruleta de clientes en JSON",
     description=(
-        "Recibe el Excel de clientes (el que descarga GET /reportes/clientes, "
-        "pudiendo estar editado) y devuelve la configuración JSON de una ruleta "
-        "con una opción por cliente: label = 'Nombre Apellidos' y weight = Peso. "
-        "Las columnas se buscan por encabezado ('Nombre' y 'Peso' obligatorias, "
-        "'Apellidos' opcional). Los clientes con peso 0 se omiten. Máximo 5MB "
-        f"y {ReporteService.MAX_FILAS_RULETA} filas."
+        "Genera directamente desde la base de datos el archivo .json de la "
+        "ruleta con todos los clientes activos: label = 'Nombre Apellidos' y "
+        "weight = Peso (1 por cada 50 puntos completos; 50, 51 o 70 puntos "
+        "valen 1). Los clientes con menos de 50 puntos no participan. Devuelve "
+        "422 si ningún cliente tiene al menos 50 puntos."
     ),
-    responses=_error_responses(401, 403, 422, 429, 500),
+    responses={
+        200: {
+            "description": "Archivo JSON de la ruleta.",
+            "content": {"application/json": {"schema": RuletaResponse.model_json_schema(by_alias=True)}},
+        },
+        **_error_responses(401, 403, 422, 429, 500),
+    },
 )
 @limiter.limit("10/minute")
-async def post_ruleta_clientes(
+async def get_ruleta_clientes(
     request: Request,
-    file: Annotated[UploadFile, File(description="Excel .xlsx de clientes")],
     current_user: Annotated[
         CurrentUser,
         Depends(require_role(Role.SUPERADMIN, Role.OWNER, Role.ADMIN)),
     ],
-) -> RuletaResponse:
-    return await ReporteService.generar_ruleta(file)
+    db_session: Annotated[AsyncSession, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> JSONResponse:
+    ruleta = await ReporteService.generar_ruleta_clientes(db_session)
+    nombre = ReporteService.nombre_archivo_ruleta(settings)
+    return JSONResponse(
+        content=ruleta.model_dump(mode="json", by_alias=True),
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )

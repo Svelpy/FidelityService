@@ -424,6 +424,21 @@ async def test_validaciones_de_unicidad_rechazan_ci_y_email_duplicados() -> None
 
 
 @pytest.mark.asyncio
+async def test_validaciones_de_unicidad_ignoran_usuarios_eliminados() -> None:
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session = _session()
+    session.execute.return_value = result
+
+    await UserService._validate_unique_ci(session, "12345678")
+    await UserService._validate_unique_email(session, "ana@example.com")
+
+    for call in session.execute.await_args_list:
+        sql = str(call.args[0])
+        assert "usuario.is_deleted IS false" in sql
+
+
+@pytest.mark.asyncio
 async def test_create_admin_con_sucursal_asigna_hash_y_auditoria() -> None:
     session = _session()
     actor_id = uuid4()

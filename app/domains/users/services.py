@@ -203,7 +203,10 @@ class UserService:
         ci: str,
         exclude_user_id: UUID | None = None,
     ) -> None:
-        statement = select(User.id).where(User.ci == ci)
+        statement = select(User.id).where(
+            User.ci == ci,
+            User.is_deleted.is_(False),
+        )
         if exclude_user_id is not None:
             statement = statement.where(User.id != exclude_user_id)
 
@@ -225,7 +228,10 @@ class UserService:
         if email is None:
             return
 
-        statement = select(User.id).where(User.email == email)
+        statement = select(User.id).where(
+            User.email == email,
+            User.is_deleted.is_(False),
+        )
         if exclude_user_id is not None:
             statement = statement.where(User.id != exclude_user_id)
 

@@ -2,7 +2,7 @@ from datetime import date
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Enum as SQLAlchemyEnum
-from sqlalchemy import Index, UniqueConstraint, text
+from sqlalchemy import Index, text
 from sqlmodel import Field
 
 from app.core.base_model import BaseModel
@@ -12,8 +12,19 @@ from app.shared.enums import Role, Genero
 class User(BaseModel, table=True):
     __tablename__ = "usuario"
     __table_args__ = (
-        UniqueConstraint("ci", name="uq_usuario_ci"),
-        UniqueConstraint("email", name="uq_usuario_email"),
+        # Únicos solo entre usuarios activos: un usuario eliminado libera su ci y email.
+        Index(
+            "uq_usuario_ci",
+            "ci",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+        ),
+        Index(
+            "uq_usuario_email",
+            "email",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+        ),
         CheckConstraint("puntos >= 0", name="ck_usuario_puntos_no_negativos"),
         CheckConstraint(
             "role NOT IN ('SUPERADMIN', 'OWNER', 'CLIENTE') OR sucursal_id IS NULL",

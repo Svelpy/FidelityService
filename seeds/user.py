@@ -105,8 +105,13 @@ async def seed_users(settings: Settings) -> None:
             created_count = 0
 
             for position, admin_data in enumerate(admins, start=1):
+                # El ci es único solo entre activos: puede haber varios
+                # eliminados con el mismo ci; se prioriza el activo.
                 result = await db_session.execute(
-                    select(User).where(User.ci == admin_data.ci)
+                    select(User)
+                    .where(User.ci == admin_data.ci)
+                    .order_by(User.is_deleted.asc())
+                    .limit(1)
                 )
                 existing_user = result.scalar_one_or_none()
 

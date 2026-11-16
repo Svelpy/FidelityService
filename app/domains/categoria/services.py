@@ -74,7 +74,10 @@ class CategoriaService:
         *,
         exclude_categoria_id: UUID | None = None,
     ) -> None:
-        statement = select(Categoria.id).where(Categoria.slug == slug)
+        statement = select(Categoria.id).where(
+            Categoria.slug == slug,
+            Categoria.is_deleted.is_(False),
+        )
         if exclude_categoria_id is not None:
             statement = statement.where(Categoria.id != exclude_categoria_id)
 

@@ -46,6 +46,16 @@ async def test_create_genera_slug_y_auditoria() -> None:
 
 
 @pytest.mark.asyncio
+async def test_validacion_de_slug_ignora_categorias_eliminadas() -> None:
+    session = _session_with_scalar(None)
+
+    await CategoriaService._validate_unique_slug(session, "gastronomia")
+
+    sql = str(session.execute.await_args.args[0])
+    assert "categoria.is_deleted IS false" in sql
+
+
+@pytest.mark.asyncio
 async def test_create_rechaza_slug_duplicado() -> None:
     session = _session_with_scalar(uuid4())
 
